@@ -12,6 +12,9 @@ end $$;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
 create temp table kg as select * from create_group('Kim ride');
 insert into shared_pins (id, audience, group_id, kind, lat, lon) values ('00000000-0000-0000-0000-0000000000a2', 'group', (select id from kg), 'regroup', 39.2, -105.4);
+-- Kim (not a reviewer) can't move or delete Maria's report (no error, nothing changes).
+update shared_pins set lat = 0 where id = '00000000-0000-0000-0000-0000000000a1';
+delete from shared_pins where id = '00000000-0000-0000-0000-0000000000a1';
 -- Jason (a) sees the tree but not Kim's group pin; he can't share into a group he's not in.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
 do $$ begin
@@ -23,9 +26,6 @@ do $$ begin
   exception when insufficient_privilege then null; end;
   begin update shared_pins set status = 'cleared' where id = '00000000-0000-0000-0000-0000000000a1'; raise exception 'set status directly'; exception when insufficient_privilege then null; end;
 end $$;
--- Jason can't move or delete Maria's report (no error, nothing changes).
-update shared_pins set lat = 0 where id = '00000000-0000-0000-0000-0000000000a1';
-delete from shared_pins where id = '00000000-0000-0000-0000-0000000000a1';
 -- Jason says it's still there, then on a later ride says it's cleared.
 insert into hazard_votes (pin_id, vote) values ('00000000-0000-0000-0000-0000000000a1', 'there');
 do $$ begin

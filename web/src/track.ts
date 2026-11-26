@@ -1,0 +1,49 @@
+// Ride recording, pins, and GPX export. Stored on the phone (localStorage).
+import { distanceM } from '../../src/core/geo.ts';
+
+export interface Pt { lat: number; lon: number; t: number; alt?: number }
+export interface Pin { id: string; kind: 'regroup' | 'hazard' | 'note'; lat: number; lon: number; t: number; note?: string }
+export interface Track { id: string; name: string; points: Pt[]; startedAt: number; endedAt?: number }
+
+const load = <T>(k: string, d: T): T => { try { return JSON.parse(localStorage.getItem(k) ?? '') as T; } catch { return d; } };
+const save = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* full */ } };
+
+export const store = {
+  tracks: () => load<Track[]>('traillink.tracks', []),
+  saveTracks: (t: Track[]) => save('traillink.tracks', t),
+  pins: () => load<Pin[]>('traillink.pins', []),
+  savePins: (p: Pin[]) => save('traillink.pins', p),
+  get: <T>(k: string, d: T) => load<T>(`traillink.${k}`, d),
+  set: (k: string, v: unknown) => save(`traillink.${k}`, v),
+};
+
+export function stats(points: Pt[]) {
+  let dist = 0, gain = 0, moving = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i];
+    const d = distanceM(a, b);
+    dist += d;
+    const dt = (b.t - a.t) / 1000;
+    if (dt > 0 && d / dt > 0.7 && dt < 120) moving += dt;
+    if (a.alt != null && b.alt != null && b.alt > a.alt) gain += b.alt - a.alt;
+  }
+  return { miles: dist / 1609.344, movingMin: Math.round(moving / 60), gainFt: Math.round(gain * 3.28084) };
+}
+
+/** Keep a point only if we moved at least 8 m or 30 s passed: keeps long rides small. */
+export function shouldKeep(last: Pt | undefined, p: Pt) {
+  return !last || distanceM(last, p) >= 8 || p.t - last.t >= 30_000;
+}
+
+export function toGpx(t: Track, pins: Pin[]): string {
+  const esc = (s: string) => s.replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!);
+  const wpts = pins.map(p => `  <wpt lat="${p.lat}" lon="${p.lon}"><time>${new Date(p.t).toISOString()}</time><name>${esc(p.note || p.kind)}</name></wpt>`).join('\n');
+  const pts = t.points.map(p => `      <trkpt lat="${p.lat}" lon="${p.lon}">${p.alt != null ? `<ele>${p.alt.toFixed(1)}</ele>` : ''}<time>${new Date(p.t).toISOString()}</time></trkpt>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="TrailLink" xmlns="http://www.topografix.com/GPX/1/1">
+${wpts}
+  <trk><name>${esc(t.name)}</name><trkseg>
+${pts}
+  </trkseg></trk>
+</gpx>`;
+}

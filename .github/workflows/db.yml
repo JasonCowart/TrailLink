@@ -29,6 +29,8 @@ jobs:
           psql -v ON_ERROR_STOP=1 -q -f supabase/003-invite-only.sql
           psql -v ON_ERROR_STOP=1 -q -f supabase/004-admin.sql
           psql -v ON_ERROR_STOP=1 -q -f supabase/005-garage.sql
+          psql -v ON_ERROR_STOP=1 -q -f supabase/006-groups.sql
           psql -v ON_ERROR_STOP=1 -f supabase/test.sql
           psql -v ON_ERROR_STOP=1 -f supabase/test-admin.sql
           psql -v ON_ERROR_STOP=1 -f supabase/test-garage.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/test-groups.sql

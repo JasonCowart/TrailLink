@@ -30,6 +30,7 @@ jobs:
           node scripts/supabase-admin.mjs sql supabase/003-invite-only.sql
           node scripts/supabase-admin.mjs sql supabase/004-admin.sql
           node scripts/supabase-admin.mjs sql supabase/005-garage.sql
+          node scripts/supabase-admin.mjs sql supabase/006-groups.sql
       - name: Sign-in settings
         if: inputs.action == 'setup'
         run: node scripts/supabase-admin.mjs auth

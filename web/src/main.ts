@@ -19,6 +19,7 @@ const state = {
   trails: store.get('trails', true),
   colorBy: store.get<ColorBy>('colorBy', 'access'),
   draw: null as null | { coords: [number, number][] },
+  detail: false,
   trailMeta: null as null | { built: string; counts: Record<string, number> },
   follow: true,
   pos: null as null | { lat: number; lon: number; acc: number; alt?: number; speed?: number; heading?: number; t: number },
@@ -73,7 +74,7 @@ function addOverlays() {
 map.on('style.load', addOverlays);
 
 // Tap a trail to see who manages it, which vehicles may use it, and when. A generous tap area for gloves.
-const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '300px', className: 'trail-popup', anchor: 'top' });
+const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '300px', className: 'trail-popup' });
 let popupProps: Record<string, string> | null = null;
 function ratingInfo(tid?: string) {
   return { mine: tid ? community.myRatings().get(tid) : undefined, score: tid ? community.scores().get(tid) : undefined, online: community.mode === 'online' };
@@ -85,7 +86,17 @@ function popupHtml(p: Record<string, string>) {
   }
   return trailPopupHtml(p, ratingInfo(p.tid));
 }
-function refreshPopup() { if (popup.isOpen() && popupProps) popup.setHTML(popupHtml(popupProps)); }
+// Phones: details go in the bottom panel (more room); tablets and desktops: a popup on the map.
+const useSheetDetails = () => window.matchMedia('(max-width: 899px), (orientation: portrait)').matches;
+const tapMarkerEl = document.createElement('div');
+tapMarkerEl.className = 'tapmark';
+const tapMarker = new maplibregl.Marker({ element: tapMarkerEl });
+function closeDetails() { state.detail = false; popupProps = null; tapMarker.remove(); popup.remove(); renderPane(); }
+function refreshPopup() {
+  if (!popupProps) return;
+  if (state.detail) renderPane();
+  else if (popup.isOpen()) popup.setHTML(popupHtml(popupProps));
+}
 map.on('click', e => {
   if (state.draw) { addDrawPoint([e.lngLat.lng, e.lngLat.lat]); return; }
   const r = 14;
@@ -97,15 +108,20 @@ map.on('click', e => {
   const best = hits.sort((a, b) => rank(a) - rank(b))[0];
   state.follow = false;
   popupProps = { ...(best.properties as Record<string, string>) };
-  popup.setLngLat(e.lngLat).setHTML(popupHtml(popupProps)).addTo(map);
-  // Slide the map so the tapped spot sits near the top and the details box fits below it.
-  const h = map.getContainer().clientHeight;
-  if (e.point.y > h * 0.3) map.easeTo({ center: e.lngLat, offset: [0, -h * 0.32], duration: 350 });
+  if (useSheetDetails()) {
+    state.detail = true;
+    tapMarker.setLngLat(e.lngLat).addTo(map);
+    renderPane();
+    $('#pane').scrollTop = 0;
+  } else {
+    popup.setLngLat(e.lngLat).setHTML(popupHtml(popupProps)).addTo(map);
+  }
 });
 // Buttons inside the popup.
-$('#map').addEventListener('click', e => {
-  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-rate]'); if (!b) return;
+for (const el of ['#map', '#pane']) $(el).addEventListener('click', e => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-rate], button[data-closedetail]'); if (!b) return;
   if (b.dataset.rate) openRateSheet(b.dataset.rate);
+  if (b.dataset.closedetail != null) closeDetails();
 });
 map.on('mousemove', e => {
   if (!state.trails) return;
@@ -440,6 +456,10 @@ const views: Record<Tab, () => string> = {
 function renderPane() {
   const pane = $('#pane');
   const scroll = pane.scrollTop;
+  if (state.detail && popupProps) {
+    pane.innerHTML = `<div class="detail">${popupHtml(popupProps)}<div class="btns"><button data-closedetail>Close</button></div></div>`;
+    return;
+  }
   pane.innerHTML = views[state.tab]();
   pane.scrollTop = scroll;
   if (state.tab === 'maps') void storageSummary().then(s => { const el = document.getElementById('storage'); if (el) el.textContent = s; });
@@ -449,7 +469,7 @@ function render() {
   renderChips(); renderPane();
 }
 
-$('#tabs').addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-tab]'); if (b) { state.tab = b.dataset.tab as Tab; render(); } });
+$('#tabs').addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-tab]'); if (b) { state.tab = b.dataset.tab as Tab; if (state.detail) { state.detail = false; tapMarker.remove(); } render(); } });
 
 $('#pane').addEventListener('click', e => {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button'); if (!b) return;

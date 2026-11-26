@@ -1,5 +1,5 @@
 // TrailLink service worker: makes the app open with no signal, and serves saved map tiles offline.
-const APP_CACHE = 'traillink-app-v1';
+const APP_CACHE = 'traillink-app-v2';
 const TILE_CACHE = 'traillink-tiles-v1'; // same name as src/offline.ts
 const RUNTIME_TILE_LIMIT = 3000; // tiles kept from normal browsing (saved areas are not trimmed)
 
@@ -30,8 +30,9 @@ self.addEventListener('fetch', event => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  // Map tiles: saved or recently seen copy first, then the network (and keep a copy).
-  if (TILE_HOSTS.includes(url.hostname)) {
+  // Map tiles (including our own trail tiles): saved or recently seen copy first, then the network (and keep a copy).
+  const ownTrailTile = url.origin === self.location.origin && /\/trails\/\d+\/\d+\/\d+\.pbf$/.test(url.pathname);
+  if (TILE_HOSTS.includes(url.hostname) || ownTrailTile) {
     event.respondWith((async () => {
       const cache = await caches.open(TILE_CACHE);
       const key = cacheKey(req.url);

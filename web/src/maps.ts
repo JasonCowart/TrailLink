@@ -15,6 +15,10 @@ export const BASE_MAPS: Record<BaseMapId, { label: string; tiles?: string; maxzo
 
 export const STREET_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
 
+/** Our own trail layer (Forest Service + BLM + OpenStreetMap), built by the Trail data workflow. Same site as the app. */
+export const TRAIL_TILES = new URL(`${import.meta.env.BASE_URL}trails/{z}/{x}/{y}.pbf`, location.href).href.replace(/%7B/g, '{').replace(/%7D/g, '}');
+export const TRAIL_MAXZOOM = 12;
+
 /** Forest Service legal OHV roads and trails, drawn by the agency's map server as transparent image tiles. */
 export const MVUM_TILES = `${MVUM}?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&f=image`;
 
@@ -22,6 +26,7 @@ export function rasterStyle(id: BaseMapId): StyleSpecification {
   const b = BASE_MAPS[id];
   return {
     version: 8,
+    glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf', // for trail name labels
     sources: {
       base: { type: 'raster', tiles: [b.tiles!], tileSize: 256, maxzoom: b.maxzoom, attribution: b.attribution },
     },
@@ -33,6 +38,12 @@ export function rasterStyle(id: BaseMapId): StyleSpecification {
 export function tilesFor(id: BaseMapId, bounds: { w: number; s: number; e: number; n: number }, minZ: number, maxZ: number, withMvum: boolean): string[] {
   const out: string[] = [];
   const tpl = BASE_MAPS[id].tiles;
+  // Our trail tiles stop at zoom 12 (the map zooms them further on its own), so they are cheap to save from zoom 5 up.
+  for (let z = 5; z <= Math.min(maxZ, TRAIL_MAXZOOM); z++) {
+    const [x0, y0] = lonLatToTile(bounds.w, bounds.n, z);
+    const [x1, y1] = lonLatToTile(bounds.e, bounds.s, z);
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) out.push(TRAIL_TILES.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y)));
+  }
   for (let z = minZ; z <= maxZ; z++) {
     const [x0, y0] = lonLatToTile(bounds.w, bounds.n, z);
     const [x1, y1] = lonLatToTile(bounds.e, bounds.s, z);

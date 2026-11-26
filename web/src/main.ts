@@ -3,7 +3,8 @@ import maplibregl, { type GeoJSONSource, type Map as MLMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { FeatureCollection } from 'geojson';
 import './styles.css';
-import { BASE_MAPS, MVUM_TILES, STREET_STYLE_URL, rasterStyle, type BaseMapId } from './maps.ts';
+import { BASE_MAPS, MVUM_TILES, STREET_STYLE_URL, TRAIL_MAXZOOM, TRAIL_TILES, rasterStyle, type BaseMapId } from './maps.ts';
+import { TRAIL_LAYERS, trailPopupHtml, legendHtml } from './trails.ts';
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
@@ -13,7 +14,9 @@ type Tab = 'ride' | 'pins' | 'maps' | 'group';
 const state = {
   tab: 'ride' as Tab,
   base: store.get<BaseMapId>('base', 'topo'),
-  mvum: store.get('mvum', true),
+  mvum: store.get('mvumImage', false),
+  trails: store.get('trails', true),
+  trailMeta: null as null | { built: string; counts: Record<string, number> },
   follow: true,
   pos: null as null | { lat: number; lon: number; acc: number; alt?: number; speed?: number; heading?: number; t: number },
   recording: null as Track | null,
@@ -47,12 +50,33 @@ function styleFor(id: BaseMapId) { return id === 'street' ? STREET_STYLE_URL : r
 
 /** Our overlays (MVUM, ride track) are re-added after every style change. */
 function addOverlays() {
+  if (!map.getSource('trails')) map.addSource('trails', { type: 'vector', tiles: [TRAIL_TILES], minzoom: 5, maxzoom: TRAIL_MAXZOOM, attribution: 'USDA Forest Service MVUM, BLM GTLF, © OpenStreetMap contributors' });
+  for (const l of TRAIL_LAYERS) if (!map.getLayer(l.id)) map.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: state.trails ? 'visible' : 'none' } } as maplibregl.LayerSpecification);
   if (!map.getSource('mvum')) map.addSource('mvum', { type: 'raster', tiles: [MVUM_TILES], tileSize: 256, minzoom: 7, maxzoom: 17, attribution: 'USDA Forest Service MVUM' });
   if (!map.getLayer('mvum')) map.addLayer({ id: 'mvum', type: 'raster', source: 'mvum', paint: { 'raster-opacity': 0.9 }, layout: { visibility: state.mvum ? 'visible' : 'none' } });
   if (!map.getSource('track')) map.addSource('track', { type: 'geojson', data: trackGeo() });
   if (!map.getLayer('track')) map.addLayer({ id: 'track', type: 'line', source: 'track', paint: { 'line-color': '#E8501A', 'line-width': 4, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
 }
 map.on('style.load', addOverlays);
+
+// Tap a trail to see who manages it, which vehicles may use it, and when. A generous tap area for gloves.
+const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '300px', className: 'trail-popup' });
+map.on('click', e => {
+  if (!state.trails) return;
+  const r = 14;
+  const hits = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers: TRAIL_LAYERS.map(l => l.id).filter(id => map.getLayer(id)) });
+  if (!hits.length) return;
+  // Prefer agency data over OpenStreetMap when both are under the finger.
+  const best = hits.sort((a, b) => Number(a.properties.src === 'OSM') - Number(b.properties.src === 'OSM'))[0];
+  state.follow = false;
+  popup.setLngLat(e.lngLat).setHTML(trailPopupHtml(best.properties as Record<string, string>)).addTo(map);
+});
+map.on('mousemove', e => {
+  if (!state.trails) return;
+  const hit = map.queryRenderedFeatures(e.point, { layers: TRAIL_LAYERS.map(l => l.id).filter(id => map.getLayer(id)) }).length;
+  map.getCanvas().style.cursor = hit ? 'pointer' : '';
+});
+fetch(TRAIL_TILES.replace('{z}/{x}/{y}.pbf', 'meta.json')).then(r => (r.ok ? r.json() : null)).then(m => { state.trailMeta = m; if (state.tab === 'maps') renderPane(); }).catch(() => {});
 map.on('dragstart', () => { state.follow = false; $('#btn-center').classList.remove('active'); });
 map.on('moveend', () => { const c = map.getCenter(); store.set('view', { c: [c.lng, c.lat], z: map.getZoom() }); });
 
@@ -239,8 +263,10 @@ const views: Record<Tab, () => string> = {
     return `
       <h2>Base map</h2>
       <div class="seg" role="group" aria-label="Base map">${(Object.keys(BASE_MAPS) as BaseMapId[]).map(id => `<button data-base="${id}" aria-pressed="${state.base === id}">${BASE_MAPS[id].label}</button>`).join('')}</div>
-      <label class="tg">Legal OHV routes (Forest Service MVUM) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
-      <p class="quiet">MVUM shows which National Forest roads and trails are open to which vehicles. Routes not on the MVUM are closed to motor vehicles. It covers Forest Service land only.</p>
+      <label class="tg">OHV trails and roads <input type="checkbox" data-set="trails" ${state.trails ? 'checked' : ''}></label>
+      ${legendHtml()}
+      <p class="quiet">Tap any trail for details. Sources: Forest Service Motor Vehicle Use Maps and BLM travel plans (legal designations), plus OpenStreetMap (community data, not a legal designation). Covers ${state.trailMeta ? `${state.trailMeta.counts ? Object.values(state.trailMeta.counts).reduce((a, b) => a + b, 0).toLocaleString() : ''} routes in Colorado and Utah, updated ${new Date(state.trailMeta.built).toLocaleDateString()}` : 'Colorado and Utah'}. Always follow posted signs.</p>
+      <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
       <h2>Offline maps</h2>
       <p class="quiet">Zoom the map to where you'll ride, then save it while you have signal. Saved areas work with no signal.</p>
       ${d ? `<div class="card"><b>Saving… ${d.done} of ${d.total}</b><div class="bar"><i style="width:${Math.round((d.done / Math.max(1, d.total)) * 100)}%"></i></div><div class="btns"><button data-act="cancel-dl">Cancel</button></div></div>`
@@ -294,7 +320,8 @@ $('#pane').addEventListener('click', e => {
 });
 $('#pane').addEventListener('change', e => {
   const t = e.target as HTMLInputElement;
-  if (t.dataset.set === 'mvum') { state.mvum = t.checked; store.set('mvum', t.checked); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', t.checked ? 'visible' : 'none'); }
+  if (t.dataset.set === 'trails') { state.trails = t.checked; store.set('trails', t.checked); for (const l of TRAIL_LAYERS) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', t.checked ? 'visible' : 'none'); if (!t.checked) popup.remove(); }
+  if (t.dataset.set === 'mvum') { state.mvum = t.checked; store.set('mvumImage', t.checked); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', t.checked ? 'visible' : 'none'); }
   if (t.dataset.set === 'keepAwake') { state.keepAwake = t.checked; store.set('keepAwake', t.checked); void applyWakeLock(); }
 });
 $('#sheet').addEventListener('submit', e => {

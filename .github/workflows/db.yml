@@ -27,4 +27,6 @@ jobs:
           psql -v ON_ERROR_STOP=1 -q -f supabase/schema.sql
           psql -v ON_ERROR_STOP=1 -q -f supabase/002-grants.sql
           psql -v ON_ERROR_STOP=1 -q -f supabase/003-invite-only.sql
+          psql -v ON_ERROR_STOP=1 -q -f supabase/004-admin.sql
           psql -v ON_ERROR_STOP=1 -f supabase/test.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/test-admin.sql

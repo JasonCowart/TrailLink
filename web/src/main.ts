@@ -797,7 +797,7 @@ function drawPins() {
     el.className = `mpin ${p.kind}${strobe ? ' strobe' : ''}`;
     el.dataset.key = key;
     el.setAttribute('aria-label', pinTitle(p));
-    el.innerHTML = `${strobe ? '<i class="flash" aria-hidden="true"></i>' : ''}${pinIcon(p.kind, p.report, 34)}${p.photos?.length ? '<i class="hasphoto" aria-hidden="true"></i>' : ''}`;
+    el.innerHTML = `${strobe ? '<i class="flash" aria-hidden="true"></i>' : ''}${pinIcon(p.kind, p.report, 34)}${p.photos?.length ? `<i class="hasphoto" aria-hidden="true">${ICONS.camera}</i>` : ''}`;
     el.addEventListener('click', ev => { ev.stopPropagation(); pinSheet(p.id); });
     pinMarkers.set(p.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map));
   }
@@ -1196,7 +1196,7 @@ const views: Record<Tab, () => string> = {
         const when = ago(new Date(pin.t).toISOString());
         // One compact line: icon · name (+ distance, time, sharing) · icon buttons.
         return `<div class="pinrow"><div class="pinline">${pinIcon(pin.kind, pin.report, 32)}
-          <button class="pinmain" data-openpin="${pin.id}"><b>${esc(pinTitle(pin))}</b><span class="quiet">${[d, when, shareTag].filter(Boolean).join(' · ')}</span></button>
+          <button class="pinmain" data-openpin="${pin.id}"><b>${esc(pinTitle(pin))}</b><span class="quiet">${[d, when, ph.length ? `📷 ${ph.length} photo${ph.length === 1 ? '' : 's'}` : '', shareTag].filter(Boolean).join(' · ')}</span></button>
           <span class="ibtns">
             <button class="ibtn" data-goto="${pin.id}" aria-label="Show ${esc(pinTitle(pin))} on the map" title="Show on map">${ICONS.target}</button>
             <button class="ibtn" data-movepin="${pin.id}" aria-label="Move ${esc(pinTitle(pin))}" title="Move">${ICONS.move}</button>

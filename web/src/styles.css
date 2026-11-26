@@ -176,7 +176,8 @@ button.link { border: 0; background: none; padding: 0; min-height: 0; color: var
 .pinphoto { margin: 0 0 12px; }
 .pinphoto img { width: 100%; border-radius: 12px; display: block; background: var(--sand); min-height: 120px; }
 .pinphoto button.small, button.small { min-height: 36px; font-size: 14px; margin-top: 6px; }
-img.missing { visibility: hidden; }
+img.missing { display: none; }
+.photomissing { display: grid; place-items: center; width: 100%; height: 100%; min-height: 48px; font-size: 11px; font-weight: 700; color: var(--red); background: var(--sand); text-align: center; line-height: 1.1; padding: 4px; }
 #btn-report { position: absolute; right: 14px; bottom: 38px; z-index: 2; width: 70px; height: 70px; border-radius: 50%; border: 4px solid #fff; padding: 0; background: #F59E0B; color: #1D221D; box-shadow: 0 3px 10px rgba(0,0,0,.3); display: grid; place-items: center; align-content: center; gap: 0; }
 #btn-report span { font-size: 24px; line-height: 1; } #btn-report small { font: 700 12px Barlow, sans-serif; }
 .reportgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
@@ -243,7 +244,8 @@ button.mpin { padding: 5px 5px 7px; min-height: 0; border: 0; background: none; 
 button.mpin .ricon { box-sizing: border-box; border: 3px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,.35); }
 button.mpin::after { content: ''; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); border: 6px solid transparent; border-bottom: 0; border-top: 8px solid #fff; }
 button.mpin.shared .ricon { border-style: dashed; }
-button.mpin .hasphoto { position: absolute; right: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 3px #1D4ED8; }
+button.mpin .hasphoto { position: absolute; right: -3px; top: -1px; width: 20px; height: 20px; border-radius: 50%; background: #fff; color: #1D4ED8; display: grid; place-items: center; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+button.mpin .hasphoto svg { width: 13px; height: 13px; }
 /* Hazard pins strobe like an emergency light: a double red flash and a ring that pulses out, every 1.6 s. */
 button.mpin .flash { position: absolute; left: 5px; top: 5px; width: 34px; height: 34px; border-radius: 50%; pointer-events: none; z-index: -1; }
 button.mpin .flash::before, button.mpin .flash::after { content: ''; position: absolute; inset: 0; border-radius: 50%; }

@@ -81,9 +81,15 @@ export async function deletePhoto(id: string) {
   await tx('readwrite', s => s.delete(id)).catch(() => {});
 }
 
+function markMissing(img: HTMLImageElement) {
+  if (img.dataset.missing) return;
+  img.dataset.missing = '1'; img.removeAttribute('src');
+  img.insertAdjacentHTML('afterend', '<span class="photomissing">Photo missing</span>'); img.classList.add('missing');
+}
 /** Fill every <img data-photo="id"> inside root with its picture. */
 export function hydratePhotos(root: ParentNode) {
   root.querySelectorAll<HTMLImageElement>('img[data-photo]:not([src])').forEach(img => {
-    void photoUrl(img.dataset.photo!).then(u => { if (u) img.src = u; else img.classList.add('missing'); });
+    void photoUrl(img.dataset.photo!).then(u => { if (u) img.src = u; else markMissing(img); }, () => markMissing(img));
+    img.onerror = () => markMissing(img);
   });
 }

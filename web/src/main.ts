@@ -1193,7 +1193,7 @@ const views: Record<Tab, () => string> = {
         const ph = pin.photos ?? [];
         const sp = sharedOf(pin);
         const shareTag = sp?.status === 'cleared' ? 'Cleared' : pin.share === 'all' ? 'All riders' : pin.share === 'group' ? 'Group' : '';
-        const when = new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).replace(' at ', ' ');
+        const when = ago(new Date(pin.t).toISOString());
         // One compact line: icon · name (+ distance, time, sharing) · icon buttons.
         return `<div class="pinrow"><div class="pinline">${pinIcon(pin.kind, pin.report, 32)}
           <button class="pinmain" data-openpin="${pin.id}"><b>${esc(pinTitle(pin))}</b><span class="quiet">${[d, when, shareTag].filter(Boolean).join(' · ')}</span></button>

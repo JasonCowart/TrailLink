@@ -175,10 +175,12 @@ function refreshDraw() {
 function addDrawPoint(p: [number, number]) { state.draw?.coords.push(p); refreshDraw(); }
 function startDrawing() { popup.remove(); state.follow = false; state.draw = { coords: [] }; refreshDraw(); toast('Tap along the trail to draw it. Zoom in for accuracy.'); }
 $('#mapwrap').addEventListener('click', e => {
-  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('#drawbar button'); if (!b || !state.draw) return;
-  if (b.dataset.draw === 'undo') { state.draw.coords.pop(); refreshDraw(); }
-  if (b.dataset.draw === 'cancel') { state.draw = null; refreshDraw(); }
-  if (b.dataset.draw === 'done') { const coords = state.draw.coords; state.draw = null; refreshDraw(); newTrailForm(coords); }
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('#drawbar button');
+  const draw = state.draw;
+  if (!b || !draw) return;
+  if (b.dataset.draw === 'undo') { draw.coords.pop(); refreshDraw(); }
+  else if (b.dataset.draw === 'cancel') { state.draw = null; refreshDraw(); }
+  else if (b.dataset.draw === 'done') { state.draw = null; refreshDraw(); newTrailForm(draw.coords); }
 });
 
 /** The new-trail form: name, difficulty, vehicles, notes. Created by and date/time are filled in automatically. */

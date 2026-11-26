@@ -1,5 +1,5 @@
 // TrailLink service worker: makes the app open with no signal, and serves saved map tiles offline.
-const APP_CACHE = 'traillink-app-v2';
+const APP_CACHE = 'traillink-app-v3';
 const TILE_CACHE = 'traillink-tiles-v1'; // same name as src/offline.ts
 const RUNTIME_TILE_LIMIT = 3000; // tiles kept from normal browsing (saved areas are not trimmed)
 

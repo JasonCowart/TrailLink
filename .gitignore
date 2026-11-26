@@ -7,3 +7,5 @@ android/
 .env*
 web/node_modules/
 web/dist/
+data/out/
+web/public/trails/

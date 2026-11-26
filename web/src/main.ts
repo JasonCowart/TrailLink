@@ -13,7 +13,7 @@ import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from '
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
 
 // ---------------------------------------------------------------- state
-type Tab = 'ride' | 'trails' | 'garage' | 'pins' | 'maps' | 'group';
+type Tab = 'ride' | 'trails' | 'garage' | 'pins' | 'group';
 const state = {
   tab: 'ride' as Tab,
   base: store.get<BaseMapId>('base', 'topo'),
@@ -25,6 +25,7 @@ const state = {
   signin: null as null | { email: string; sent: boolean; busy: boolean; error?: string },
   admin: { riders: null as AdminRider[] | null, busy: false, error: '', invited: '' },
   rigMarks: store.get('rigMarks', true),
+  panel: null as null | 'layers' | 'basemap',
   trailMeta: null as null | { built: string; counts: Record<string, number> },
   follow: true,
   pos: null as null | { lat: number; lon: number; acc: number; alt?: number; speed?: number; heading?: number; t: number },
@@ -199,7 +200,7 @@ async function vote(tid: string, n: number | null) {
   map.setFeatureState(target, { mine: n, comm: community.scores().get(tid)?.avg ?? null });
   closeSheet(); refreshPopup();
   const rode = community.activeVehicle();
-  toast(n == null ? 'Rating removed.' : `Rated ${n} (${levelOf(n).band})${rode ? ` in your ${rode.nickname}` : ''}.${state.colorBy === 'access' ? ' Switch "Color trails by" to see difficulty.' : ''}`);
+  toast(n == null ? 'Rating removed.' : `Rated ${n} (${levelOf(n).band})${rode ? ` in your ${rode.nickname}` : ''}.${state.colorBy === 'access' ? ' Use the layers button to color trails by difficulty.' : ''}`);
 }
 
 // ---------------------------------------------------------------- rider account (share trails and ratings)
@@ -231,6 +232,51 @@ function accountHtml(): string {
       </form>`}
     <p class="quiet">${community.mode === 'online' ? 'Connected: you can already see other riders\' ratings and trails.' : status}</p>`;
 }
+
+// ---------------------------------------------------------------- map panels (layers button and base map button)
+function layersPanelHtml(): string {
+  return `<h3>Trail layers</h3>
+      <label class="tg">OHV trails and roads <input type="checkbox" data-set="trails" ${state.trails ? 'checked' : ''}></label>
+      <p class="quiet" style="margin-bottom:4px"><b>Color trails by</b></p>
+      <div class="seg seg4" role="group" aria-label="Color trails by">
+        <button data-colorby="access" aria-pressed="${state.colorBy === 'access'}">Who can ride</button>
+        <button data-colorby="community" aria-pressed="${state.colorBy === 'community'}">Difficulty: riders</button>
+        <button data-colorby="rig" aria-pressed="${state.colorBy === 'rig'}">Difficulty: my rig</button>
+        <button data-colorby="mine" aria-pressed="${state.colorBy === 'mine'}">Difficulty: mine</button>
+      </div>
+      ${state.colorBy === 'access' ? legendHtml() : difficultyLegendHtml()}
+      ${state.colorBy === 'mine' ? '<p class="quiet">Trails you rated show your rating; the rest show the riders\' rating.</p>' : ''}
+      ${state.colorBy === 'rig' ? (community.activeVehicle() ? `<p class="quiet">Forecast for your <b>${esc(community.activeVehicle()!.nickname)}</b>: the riders' rating, adjusted for how their rigs compare to yours.</p>` : '<p class="quiet">Add your vehicle in the Garage tab to see trails colored for your rig.</p>') : ''}
+      <label class="tg"><span><span class="mk harder">▲</span><span class="mk easier">▼</span> Mark trails that are harder or easier for my rig</span> <input type="checkbox" data-set="rigMarks" ${state.rigMarks ? 'checked' : ''}></label>
+      ${state.rigMarks && !community.activeVehicle() ? '<p class="quiet">Markers appear once you add a vehicle in the Garage tab.</p>' : ''}
+      <p class="quiet">Tap any trail for details. Sources: Forest Service Motor Vehicle Use Maps and BLM travel plans (legal designations), plus OpenStreetMap (community data, not a legal designation). Covers ${state.trailMeta ? `${state.trailMeta.counts ? Object.values(state.trailMeta.counts).reduce((a, b) => a + b, 0).toLocaleString() : ''} routes in Colorado and Utah, updated ${new Date(state.trailMeta.built).toLocaleDateString()}` : 'Colorado and Utah'}. Always follow posted signs.</p>
+      <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
+      <div class="btns"><button data-close>Done</button></div>`;
+}
+function basemapPanelHtml(): string {
+  const areas = savedAreas();
+  const d = state.download;
+  return `<h3>Base map</h3>
+      <div class="seg" role="group" aria-label="Base map">${(Object.keys(BASE_MAPS) as BaseMapId[]).map(id => `<button data-base="${id}" aria-pressed="${state.base === id}">${BASE_MAPS[id].label}</button>`).join('')}</div>
+      <h2>Offline maps</h2>
+      <p class="quiet">Zoom the map to where you'll ride, then save it while you have signal. Saved areas work with no signal.</p>
+      ${d ? `<div class="card"><b>Saving… ${d.done} of ${d.total}</b><div class="bar"><i style="width:${Math.round((d.done / Math.max(1, d.total)) * 100)}%"></i></div><div class="btns"><button data-act="cancel-dl">Cancel</button></div></div>`
+          : `<div class="btns"><button class="primary" data-act="save-area">Save the area on screen</button></div>`}
+      ${areas.map(a => `<div class="row"><div class="grow"><b>${esc(a.name)}</b><div class="quiet">Zoom ${a.minZ}–${a.maxZ} · ${a.tiles.toLocaleString()} pieces · ${new Date(a.savedAt).toLocaleDateString()}</div></div>
+        <button data-showarea="${a.id}">Show</button><button data-forget="${a.id}" aria-label="Remove from list">✕</button></div>`).join('')}
+      <p class="quiet" id="storage"></p>
+      ${areas.length ? '<div class="btns"><button data-act="clear-tiles">Delete all saved maps</button></div>' : ''}
+      <div class="btns"><button data-close>Done</button></div>`;
+}
+function panelHtml() { return state.panel === 'layers' ? layersPanelHtml() : basemapPanelHtml(); }
+function openPanel(p: 'layers' | 'basemap') { sheet(panelHtml(), 'panel'); state.panel = p; fillStorage(); }
+/** Keep an open panel current (download progress, toggles). */
+function refreshPanel() {
+  if (!state.panel || $('#sheet').hidden) return;
+  const body = $('#sheet-body'), top = body.scrollTop;
+  body.innerHTML = panelHtml(); body.scrollTop = top; fillStorage();
+}
+function fillStorage() { if (state.panel === 'basemap') void storageSummary().then(s => { const el = document.getElementById('storage'); if (el) el.textContent = s; }); }
 
 // ---------------------------------------------------------------- garage: your vehicles and their setup
 function garageHtml(): string {
@@ -403,7 +449,7 @@ function newTrailForm(coords: [number, number][]) {
 }
 let pendingCoords: [number, number][] | null = null;
 
-fetch(TRAIL_TILES.replace('{z}/{x}/{y}.pbf', 'meta.json')).then(r => (r.ok ? r.json() : null)).then(m => { state.trailMeta = m; if (state.tab === 'maps') renderPane(); }).catch(() => {});
+fetch(TRAIL_TILES.replace('{z}/{x}/{y}.pbf', 'meta.json')).then(r => (r.ok ? r.json() : null)).then(m => { state.trailMeta = m; refreshPanel(); }).catch(() => {});
 map.on('dragstart', () => { state.follow = false; $('#btn-center').classList.remove('active'); });
 map.on('moveend', () => { const c = map.getCenter(); store.set('view', { c: [c.lng, c.lat], z: map.getZoom() }); });
 
@@ -518,7 +564,7 @@ async function saveVisibleArea() {
   try {
     await downloadArea(name, state.base, bounds, Math.floor(map.getZoom()), state.mvum, (done, total, failed) => {
       if (state.download) Object.assign(state.download, { done, total, failed });
-      if (state.tab === 'maps') renderPane();
+      refreshPanel();
     }, ctrl.signal);
     toast(state.download && state.download.failed ? `Saved, but ${state.download.failed} pieces failed. Try again with signal.` : 'Area saved for offline use.');
   } catch { toast('Download stopped.'); }
@@ -533,10 +579,11 @@ function toast(msg: string) {
 }
 function sheet(html: string, cls = '') {
   const s = $('#sheet'), body = $('#sheet-body');
+  state.panel = null;
   body.className = `dialog ${cls}`; body.innerHTML = html; s.hidden = false;
   body.querySelector<HTMLElement>('button')?.focus();
 }
-function closeSheet() { $('#sheet').hidden = true; }
+function closeSheet() { $('#sheet').hidden = true; state.panel = null; }
 $('#sheet').addEventListener('click', e => { const t = e.target as HTMLElement; if (t.id === 'sheet' || t.closest('[data-close]')) closeSheet(); });
 
 function renderChips() {
@@ -594,7 +641,7 @@ const views: Record<Tab, () => string> = {
       <h2>How the forecast works</h2>
       <p class="quiet">Each rating saves the vehicle it was ridden in. For your rig, TrailLink starts from the riders' rating and adjusts it by how their vehicles compare to yours: a trail rated 7 in stock rigs may be a 4 in a full build, and the reverse.</p>
       <p class="quiet">Rig score: tires and lift count most, then lockers, then skid plates and rock sliders. A winch helps you recover, not climb, so it doesn't change the score.</p>
-      <p class="quiet">See it on the map: Maps tab › Color trails by › Difficulty: my rig, and the ▲ harder / ▼ easier markers.</p>`;
+      <p class="quiet">See it on the map: tap the layers button on the map, then Color trails by › Difficulty: my rig. The ▲ harder / ▼ easier markers can be turned on there too.</p>`;
   },
   pins() {
     const p = state.pos;
@@ -606,36 +653,6 @@ const views: Record<Tab, () => string> = {
         return `<div class="row"><div class="grow"><b>${esc(pin.note || ({ regroup: 'Regroup point', hazard: 'Hazard', note: 'Note' } as const)[pin.kind])}</b><div class="quiet">${d}${d ? ' · ' : ''}${new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div></div>
           <button data-goto="${pin.id}" aria-label="Show on map">Show</button><button data-delpin="${pin.id}" aria-label="Delete pin">✕</button></div>`;
       }).join('') : '<p class="quiet">No pins yet. Pins stay on this phone and work offline.</p>'}`;
-  },
-  maps() {
-    const areas = savedAreas();
-    const d = state.download;
-    return `
-      <h2>Base map</h2>
-      <div class="seg" role="group" aria-label="Base map">${(Object.keys(BASE_MAPS) as BaseMapId[]).map(id => `<button data-base="${id}" aria-pressed="${state.base === id}">${BASE_MAPS[id].label}</button>`).join('')}</div>
-      <label class="tg">OHV trails and roads <input type="checkbox" data-set="trails" ${state.trails ? 'checked' : ''}></label>
-      <p class="quiet" style="margin-bottom:4px"><b>Color trails by</b></p>
-      <div class="seg seg4" role="group" aria-label="Color trails by">
-        <button data-colorby="access" aria-pressed="${state.colorBy === 'access'}">Who can ride</button>
-        <button data-colorby="community" aria-pressed="${state.colorBy === 'community'}">Difficulty: riders</button>
-        <button data-colorby="rig" aria-pressed="${state.colorBy === 'rig'}">Difficulty: my rig</button>
-        <button data-colorby="mine" aria-pressed="${state.colorBy === 'mine'}">Difficulty: mine</button>
-      </div>
-      ${state.colorBy === 'access' ? legendHtml() : difficultyLegendHtml()}
-      ${state.colorBy === 'mine' ? '<p class="quiet">Trails you rated show your rating; the rest show the riders\' rating.</p>' : ''}
-      ${state.colorBy === 'rig' ? (community.activeVehicle() ? `<p class="quiet">Forecast for your <b>${esc(community.activeVehicle()!.nickname)}</b>: the riders' rating, adjusted for how their rigs compare to yours.</p>` : '<p class="quiet">Add your vehicle in the Garage tab to see trails colored for your rig.</p>') : ''}
-      <label class="tg"><span><span class="mk harder">▲</span><span class="mk easier">▼</span> Mark trails that are harder or easier for my rig</span> <input type="checkbox" data-set="rigMarks" ${state.rigMarks ? 'checked' : ''}></label>
-      ${state.rigMarks && !community.activeVehicle() ? '<p class="quiet">Markers appear once you add a vehicle in the Garage tab.</p>' : ''}
-      <p class="quiet">Tap any trail for details. Sources: Forest Service Motor Vehicle Use Maps and BLM travel plans (legal designations), plus OpenStreetMap (community data, not a legal designation). Covers ${state.trailMeta ? `${state.trailMeta.counts ? Object.values(state.trailMeta.counts).reduce((a, b) => a + b, 0).toLocaleString() : ''} routes in Colorado and Utah, updated ${new Date(state.trailMeta.built).toLocaleDateString()}` : 'Colorado and Utah'}. Always follow posted signs.</p>
-      <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
-      <h2>Offline maps</h2>
-      <p class="quiet">Zoom the map to where you'll ride, then save it while you have signal. Saved areas work with no signal.</p>
-      ${d ? `<div class="card"><b>Saving… ${d.done} of ${d.total}</b><div class="bar"><i style="width:${Math.round((d.done / Math.max(1, d.total)) * 100)}%"></i></div><div class="btns"><button data-act="cancel-dl">Cancel</button></div></div>`
-          : `<div class="btns"><button class="primary" data-act="save-area">Save the area on screen</button></div>`}
-      ${areas.map(a => `<div class="row"><div class="grow"><b>${esc(a.name)}</b><div class="quiet">Zoom ${a.minZ}–${a.maxZ} · ${a.tiles.toLocaleString()} pieces · ${new Date(a.savedAt).toLocaleDateString()}</div></div>
-        <button data-showarea="${a.id}">Show</button><button data-forget="${a.id}" aria-label="Remove from list">✕</button></div>`).join('')}
-      <p class="quiet" id="storage"></p>
-      ${areas.length ? '<div class="btns"><button data-act="clear-tiles">Delete all saved maps</button></div>' : ''}`;
   },
   group() {
     return `${community.isAdmin && community.signedIn ? adminHtml() : ''}
@@ -656,7 +673,7 @@ function renderPane() {
   }
   pane.innerHTML = views[state.tab]();
   pane.scrollTop = scroll;
-  if (state.tab === 'maps') void storageSummary().then(s => { const el = document.getElementById('storage'); if (el) el.textContent = s; });
+  refreshPanel();
 }
 function render() {
   document.querySelectorAll<HTMLButtonElement>('#tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === state.tab)));
@@ -665,7 +682,7 @@ function render() {
 
 $('#tabs').addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-tab]'); if (b) { state.tab = b.dataset.tab as Tab; if (state.detail) { state.detail = false; tapMarker.remove(); } render(); } });
 
-$('#pane').addEventListener('click', e => {
+function paneClick(e: Event) {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button'); if (!b) return;
   const act = b.dataset.act;
   if (act === 'record') startRecording();
@@ -707,16 +724,20 @@ $('#pane').addEventListener('click', e => {
   if (b.dataset.delpin) { state.pins = state.pins.filter(p => p.id !== b.dataset.delpin); store.savePins(state.pins); drawPins(); renderPane(); }
   if (b.dataset.goto) { const p = state.pins.find(x => x.id === b.dataset.goto); if (p) { state.follow = false; map.flyTo({ center: [p.lon, p.lat], zoom: 15 }); } }
   if (b.dataset.forget) { forgetArea(b.dataset.forget); renderPane(); }
-  if (b.dataset.showarea) { const a = savedAreas().find(x => x.id === b.dataset.showarea); if (a) { state.follow = false; map.fitBounds([[a.bounds.w, a.bounds.s], [a.bounds.e, a.bounds.n]]); } }
-});
-$('#pane').addEventListener('change', e => {
+  if (b.dataset.showarea) { const a = savedAreas().find(x => x.id === b.dataset.showarea); if (a) { state.follow = false; closeSheet(); map.fitBounds([[a.bounds.w, a.bounds.s], [a.bounds.e, a.bounds.n]]); } }
+}
+$('#pane').addEventListener('click', paneClick);
+$('#sheet').addEventListener('click', e => { if (state.panel) paneClick(e); });
+function paneChange(e: Event) {
   const t = e.target as HTMLInputElement;
   if (t.id === 'fromride' && t.value) { const ride = state.tracks.find(r => r.id === t.value); if (ride) newTrailForm(ride.points.map(p => [p.lon, p.lat] as [number, number])); t.value = ''; }
   if (t.dataset.set === 'trails') { state.trails = t.checked; store.set('trails', t.checked); for (const l of [...TRAIL_LAYERS, ...OVERVIEW_LAYERS]) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', t.checked ? 'visible' : 'none'); if (!t.checked) popup.remove(); applyRigMarks(); }
   if (t.dataset.set === 'rigMarks') { state.rigMarks = t.checked; store.set('rigMarks', t.checked); applyRigMarks(); renderPane(); }
   if (t.dataset.set === 'mvum') { state.mvum = t.checked; store.set('mvumImage', t.checked); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', t.checked ? 'visible' : 'none'); }
   if (t.dataset.set === 'keepAwake') { state.keepAwake = t.checked; store.set('keepAwake', t.checked); void applyWakeLock(); }
-});
+}
+$('#pane').addEventListener('change', paneChange);
+$('#sheet').addEventListener('change', e => { if (state.panel) paneChange(e); });
 $('#pane').addEventListener('submit', e => {
   e.preventDefault();
   const form = e.target as HTMLFormElement, f = new FormData(form);
@@ -776,7 +797,8 @@ $('#sheet').addEventListener('click', e => {
   if (b.dataset.act2 === 'sos-copy' && state.pos) { void navigator.clipboard?.writeText(`${state.pos.lat.toFixed(5)}, ${state.pos.lon.toFixed(5)}`).then(() => toast('Coordinates copied.'), () => {}); }
 });
 
-$('#btn-layers').addEventListener('click', () => { state.tab = 'maps'; render(); });
+$('#btn-layers').addEventListener('click', () => openPanel('layers'));
+$('#btn-base').addEventListener('click', () => openPanel('basemap'));
 $('#btn-center').addEventListener('click', () => {
   state.follow = true; $('#btn-center').classList.add('active');
   if (state.pos) map.easeTo({ center: [state.pos.lon, state.pos.lat], zoom: Math.max(map.getZoom(), 14) });

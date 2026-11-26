@@ -5,7 +5,8 @@ import type { FeatureCollection } from 'geojson';
 import './styles.css';
 import { BASE_MAPS, MVUM_TILES, STREET_STYLE_URL, TRAIL_MAXZOOM, TRAIL_TILES, rasterStyle, type BaseMapId } from './maps.ts';
 import { COLORED_LAYERS, TRAIL_LAYERS, difficultyLegendHtml, legendHtml, rateSheetHtml, ratingHtml, trailColor, trailPopupHtml, type ColorBy } from './trails.ts';
-import { LocalCommunity, VEHICLE_FIT, lengthMiles, levelOf, LEVELS, stepColor, type Community, type RiderTrail, type VehicleFit } from './community.ts';
+import { VEHICLE_FIT, lengthMiles, levelOf, LEVELS, stepColor, type RiderTrail, type VehicleFit } from './community.ts';
+import { OnlineCommunity } from './online.ts';
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
@@ -20,6 +21,7 @@ const state = {
   colorBy: store.get<ColorBy>('colorBy', 'access'),
   draw: null as null | { coords: [number, number][] },
   detail: false,
+  signin: null as null | { email: string; sent: boolean; busy: boolean; error?: string },
   trailMeta: null as null | { built: string; counts: Record<string, number> },
   follow: true,
   pos: null as null | { lat: number; lon: number; acc: number; alt?: number; speed?: number; heading?: number; t: number },
@@ -35,7 +37,7 @@ const state = {
 const unfinished = state.tracks.find(t => !t.endedAt);
 if (unfinished) state.recording = unfinished;
 
-const community: Community = new LocalCommunity();
+const community = new OnlineCommunity();
 const $ = <T extends HTMLElement = HTMLElement>(s: string) => document.querySelector(s) as T;
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
@@ -119,8 +121,9 @@ map.on('click', e => {
 });
 // Buttons inside the popup.
 for (const el of ['#map', '#pane']) $(el).addEventListener('click', e => {
-  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-rate], button[data-closedetail]'); if (!b) return;
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-rate], button[data-closedetail], button[data-confirm]'); if (!b) return;
   if (b.dataset.rate) openRateSheet(b.dataset.rate);
+  if (b.dataset.confirm) { void community.confirmTrail(b.dataset.confirm).then(() => { refreshPopup(); toast('Thanks! Three confirmations make a trail verified.'); }); }
   if (b.dataset.closedetail != null) closeDetails();
 });
 map.on('mousemove', e => {
@@ -160,6 +163,34 @@ async function vote(tid: string, n: number | null) {
   toast(n == null ? 'Rating removed.' : `Rated ${n} (${levelOf(n).band}).${state.colorBy === 'access' ? ' Switch "Color trails by" to see difficulty.' : ''}`);
 }
 
+// ---------------------------------------------------------------- rider account (share trails and ratings)
+function accountHtml(): string {
+  const pending = community.pendingCount();
+  const status = { offline: 'Offline: changes will upload when you have signal.', syncing: 'Syncing…', 'up-to-date': 'Up to date.', error: "Couldn't reach the TrailLink database. Will retry." }[community.syncState];
+  if (community.signedIn) {
+    return `<h2>Sharing with riders</h2>
+      <div class="card"><b>${esc(community.me()?.name ?? 'Rider')}</b><div class="quiet">${esc(community.email ?? '')}</div>
+      <p class="quiet">${pending ? `${pending} change${pending === 1 ? '' : 's'} waiting to upload. ` : ''}${status}${community.lastSynced ? ` Last synced ${new Date(community.lastSynced).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : ''}</p>
+      <div class="btns"><button data-act="sync">Sync now</button><button data-act="rename">Change name</button><button data-act="signout">Sign out</button></div></div>`;
+  }
+  const si = state.signin;
+  return `<h2>Share with other riders</h2>
+    <p class="quiet">Sign in to share your trails and ratings and see everyone else's. No password: we email you a 6-digit code.${pending ? ` ${pending} change${pending === 1 ? '' : 's'} on this phone will upload when you sign in.` : ''}</p>
+    ${si?.sent ? `<form id="codeform" class="form">
+        <label>Code from the email sent to ${esc(si.email)}<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required placeholder="123456"></label>
+        ${si.error ? `<p class="quiet" style="color:var(--red)">${esc(si.error)}</p>` : ''}
+        <div class="btns"><button type="button" data-act="signin-back">Back</button><button class="primary" ${si.busy ? 'disabled' : ''}>Sign in</button></div>
+        <p class="quiet">The email may also have a sign-in link. On iPhone, if you installed TrailLink to your home screen, use the code instead of the link.</p>
+      </form>`
+    : `<form id="signinform" class="form">
+        <label>Your name (shown as "created by")<input name="name" required maxlength="40" value="${esc(community.me()?.name ?? '')}" placeholder="e.g. Jason"></label>
+        <label>Email<input name="email" type="email" autocomplete="email" required value="${esc(si?.email ?? '')}" placeholder="you@example.com"></label>
+        ${si?.error ? `<p class="quiet" style="color:var(--red)">${esc(si.error)}</p>` : ''}
+        <div class="btns"><button class="primary" ${si?.busy ? 'disabled' : ''}>Email me a code</button></div>
+      </form>`}
+    <p class="quiet">${community.mode === 'online' ? 'Connected: you can already see other riders\' ratings and trails.' : status}</p>`;
+}
+
 // ---------------------------------------------------------------- rider-created trails
 function riderTrailsGeo(): FeatureCollection {
   return { type: 'FeatureCollection', features: community.trails().map(t => ({ type: 'Feature', properties: { tid: `RIDER:${t.id}`, src: 'RIDER', name: t.name, difficulty: t.difficulty }, geometry: { type: 'LineString', coordinates: t.coords } })) };
@@ -173,7 +204,9 @@ function riderTrailHtml(t: RiderTrail) {
     <dl><dt>Vehicles</dt><dd>${esc(VEHICLE_FIT[t.vehicles])}</dd><dt>Length</dt><dd>${lengthMiles(t.coords).toFixed(1)} mi</dd>
       <dt>Created by</dt><dd>${esc(t.createdBy)}</dd><dt>When</dt><dd>${esc(when)}</dd>${t.notes ? `<dt>Notes</dt><dd>${esc(t.notes)}</dd>` : ''}</dl>
     ${(() => { const r = ratingInfo(`RIDER:${t.id}`); return ratingHtml(`RIDER:${t.id}`, r.mine, r.score, r.online); })()}
-    <div class="tp-src">Rider-created trail, not yet verified. Check that it's legal to ride before you go.</div>`;
+    ${t.verified ? '<div class="tp-status" style="--c:#15803D">Verified by riders</div>' : ''}
+    ${!community.isMine(t) && !t.verified ? (community.hasConfirmed(t.id) ? '<p class="quiet">You confirmed this trail. Thanks!</p>' : community.signedIn ? `<button data-confirm="${t.id}">I rode this, it's real</button>` : '<p class="quiet">Sign in (Trails tab) to confirm this trail.</p>') : ''}
+    <div class="tp-src">${t.verified ? 'Rider-created trail, confirmed by other riders.' : `Rider-created trail, not yet verified${t.confirmations ? ` (${t.confirmations} of 3 confirmations)` : ''}.`} Check that it's legal to ride before you go.</div>`;
 }
 function drawGeo(): FeatureCollection {
   const c = state.draw?.coords ?? [];
@@ -404,7 +437,8 @@ const views: Record<Tab, () => string> = {
       ${mine.length ? mine.map(t => { const l = levelOf(t.difficulty); return `<div class="row"><span class="dchip" style="--c:${l.color}">${t.difficulty}</span><div class="grow"><b>${esc(t.name)}</b><div class="quiet">${lengthMiles(t.coords).toFixed(1)} mi · by ${esc(t.createdBy)} · ${new Date(t.createdAt).toLocaleDateString()}</div></div>
         <button data-showtrail="${t.id}">Show</button><button data-deltrail="${t.id}" aria-label="Delete ${esc(t.name)}">✕</button></div>`; }).join('') : '<p class="quiet">None yet.</p>'}
       <h2>Your ratings</h2>
-      <p class="quiet">${rated ? `You've rated ${rated} trail${rated === 1 ? '' : 's'}.` : 'Tap any trail on the map and choose "Rate difficulty".'} ${community.mode === 'local' ? 'Trails and ratings are saved on this phone. They will be shared with other riders once the TrailLink database is connected.' : ''}</p>`;
+      <p class="quiet">${rated ? `You've rated ${rated} trail${rated === 1 ? '' : 's'}.` : 'Tap any trail on the map and choose "Rate difficulty".'}</p>
+      ${accountHtml()}`;
   },
   pins() {
     const p = state.pos;
@@ -485,6 +519,10 @@ $('#pane').addEventListener('click', e => {
   if (b.dataset.base) setBase(b.dataset.base as BaseMapId);
   if (b.dataset.colorby) { state.colorBy = b.dataset.colorby as ColorBy; store.set('colorBy', state.colorBy); applyColorBy(); renderPane(); }
   if (act === 'draw') startDrawing();
+  if (act === 'sync') void community.sync();
+  if (act === 'signout') void community.signOut().then(() => { state.signin = null; renderPane(); });
+  if (act === 'signin-back') { state.signin = state.signin ? { ...state.signin, sent: false, error: undefined } : null; renderPane(); }
+  if (act === 'rename') sheet(`<h3>Your name</h3><form id="renameform" class="form"><label>Shown as "created by" on your trails<input name="name" required maxlength="40" value="${esc(community.me()?.name ?? '')}"></label><div class="btns"><button type="button" data-close>Cancel</button><button class="primary">Save</button></div></form>`);
   if (b.dataset.showtrail) { const t = community.trails().find(x => x.id === b.dataset.showtrail); if (t) { state.follow = false; const xs = t.coords.map(c => c[0]), ys = t.coords.map(c => c[1]); map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: 60, maxZoom: 15 }); } }
   if (b.dataset.deltrail) { const t = community.trails().find(x => x.id === b.dataset.deltrail); if (t) sheet(`<h3>Delete ${esc(t.name)}?</h3><p>This removes the trail from this phone.</p><div class="btns"><button data-close>Keep it</button><button class="danger" data-act2="deltrail" data-id="${t.id}">Delete</button></div>`); }
   if (b.dataset.gpx) downloadGpx(b.dataset.gpx);
@@ -500,8 +538,24 @@ $('#pane').addEventListener('change', e => {
   if (t.dataset.set === 'mvum') { state.mvum = t.checked; store.set('mvumImage', t.checked); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', t.checked ? 'visible' : 'none'); }
   if (t.dataset.set === 'keepAwake') { state.keepAwake = t.checked; store.set('keepAwake', t.checked); void applyWakeLock(); }
 });
+$('#pane').addEventListener('submit', e => {
+  e.preventDefault();
+  const form = e.target as HTMLFormElement, f = new FormData(form);
+  if (form.id === 'signinform') {
+    const email = String(f.get('email') ?? '').trim(), name = String(f.get('name') ?? '').trim();
+    state.signin = { email, sent: false, busy: true }; renderPane();
+    community.sendCode(email, name).then(() => { state.signin = { email, sent: true, busy: false }; renderPane(); })
+      .catch((err: Error) => { state.signin = { email, sent: false, busy: false, error: err.message }; renderPane(); });
+  }
+  if (form.id === 'codeform' && state.signin) {
+    const si = state.signin; si.busy = true; renderPane();
+    community.verifyCode(si.email, String(f.get('code') ?? '')).then(() => { state.signin = null; toast('Signed in. Your trails and ratings are now shared.'); renderPane(); })
+      .catch((err: Error) => { state.signin = { ...si, busy: false, error: err.message }; renderPane(); });
+  }
+});
 $('#sheet').addEventListener('submit', e => {
   e.preventDefault();
+  if ((e.target as HTMLElement).id === 'renameform') { community.setName(String(new FormData(e.target as HTMLFormElement).get('name') ?? '')); closeSheet(); void community.sync(); renderPane(); }
   if ((e.target as HTMLElement).id === 'noteform') { addPin('note', $<HTMLInputElement>('#notetext').value); closeSheet(); }
   if ((e.target as HTMLElement).id === 'trailform' && pendingCoords) {
     const f = new FormData(e.target as HTMLFormElement);
@@ -565,6 +619,10 @@ if ('serviceWorker' in navigator) {
 $('#btn-center').classList.add('active');
 // Test hook: open the app with #debug to reach the map from automated browser tests.
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state } });
+community.onChange = () => { refreshRiderTrails(); refreshPopup(); if (state.tab === 'trails' && !state.detail) renderPane(); };
+void community.init();
+setInterval(() => { if (document.visibilityState === 'visible') void community.sync(); }, 120_000);
+window.addEventListener('online', () => { void community.sync(); });
 render();
 map.on('load', drawPins);
 startGps();

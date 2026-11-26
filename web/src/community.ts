@@ -45,6 +45,7 @@ export interface RiderTrail {
   createdAt: string; // ISO date and time
   coords: [number, number][];
   verified?: boolean;
+  confirmations?: number;
 }
 
 export interface CommunityScore { avg: number; count: number }

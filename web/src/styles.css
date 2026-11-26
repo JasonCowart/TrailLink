@@ -17,19 +17,20 @@ button:disabled { opacity: .5; }
 a.btnlink { display: flex; align-items: center; justify-content: center; flex: 1 1 140px; min-height: 48px; border-radius: 14px; font-weight: 700; text-decoration: none; }
 a.btnlink.danger { background: var(--sos); color: #fff; border: 2px solid #fff; }
 
-#app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+#app { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; }
 #top { display: flex; align-items: center; gap: 10px; padding: calc(10px + var(--safe-top)) 14px 10px; background: var(--pine); color: #fff; }
 .brand { flex: 1; display: flex; flex-direction: column; line-height: 1.1; }
 .brand b { font: 700 23px/1 'Barlow Condensed', 'Arial Narrow', sans-serif; letter-spacing: .01em; }
 .brand span { font-size: 13px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.chip { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: rgba(255,255,255,.16); white-space: nowrap; }
-.chip.on { background: #fff; color: var(--pine); }
+.chips { position: absolute; left: 10px; top: calc(10px + var(--safe-top)); z-index: 2; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 90px); pointer-events: none; }
+.chip { font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 99px; background: rgba(31,77,58,.88); color: #fff; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+.chip.on { background: rgba(255,253,248,.92); color: var(--pine); }
+.chip.off { background: #B45309; color: #fff; }
 .chip.rec { background: var(--sos); color: #fff; }
 
 #mapwrap { position: relative; background: var(--land); }
 #map { position: absolute; inset: 0; }
-.fabs { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 8px; z-index: 2; }
+.fabs { position: absolute; right: 12px; top: calc(12px + var(--safe-top)); display: flex; flex-direction: column; gap: 8px; z-index: 2; }
 .fab { width: 52px; height: 52px; padding: 0; display: grid; place-items: center; border: 0; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
 .fab svg { width: 24px; height: 24px; fill: none; stroke: var(--ink); stroke-width: 2; }
 .fab.active { background: var(--pine); } .fab.active svg { stroke: #fff; }
@@ -44,7 +45,10 @@ a.btnlink.danger { background: var(--sos); color: #fff; border: 2px solid #fff; 
 .pin { padding: 3px 8px; border-radius: 8px; color: #fff; font-weight: 700; font-size: 12px; box-shadow: 0 2px 6px rgba(0,0,0,.25); white-space: nowrap; }
 .pin.regroup { background: var(--action); } .pin.hazard { background: var(--sos); } .pin.note { background: var(--pine); } .pin.photo { background: #1D4ED8; } .pin { cursor: pointer; }
 
-#panel { background: var(--paper); border-top: 1px solid var(--line); display: flex; flex-direction: column; max-height: 42vh; padding-bottom: var(--safe-bottom); }
+#panel { background: var(--paper); border-top: 1px solid var(--line); display: flex; flex-direction: column; max-height: 46vh; padding-bottom: var(--safe-bottom); }
+#app.collapsed #pane { display: none; }
+#panel-toggle { flex: 0 0 48px; border: 0; border-radius: 0; background: none; color: var(--quiet); font-size: 18px; padding: 0; }
+#app:not(.collapsed) #panel-toggle span { display: inline-block; transform: rotate(180deg); }
 #tabs { display: flex; border-bottom: 1px solid var(--line); }
 #tabs button { flex: 1 1 0; min-width: 0; padding: 0 2px; font-size: 15px; border: 0; border-radius: 0; background: none; color: var(--quiet); border-bottom: 3px solid transparent; }
 #tabs button[aria-selected="true"] { color: var(--pine); border-bottom-color: var(--action); }
@@ -79,9 +83,14 @@ label.tg input { width: 24px; height: 24px; accent-color: var(--action); flex: n
 
 /* Dash tablet: map beside a side panel */
 @media (min-width: 900px) and (orientation: landscape) {
-  #app { grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: auto minmax(0, 1fr); }
-  #top { grid-column: 1 / 3; }
-  #panel { grid-column: 2; grid-row: 2; max-height: none; border-top: 0; border-left: 1px solid var(--line); }
+  #app { grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: minmax(0, 1fr); }
+  #panel { grid-column: 2; grid-row: 1; max-height: none; border-top: 0; border-left: 1px solid var(--line); padding-top: var(--safe-top); }
+  /* Collapsed on a dash tablet: a narrow rail of tabs beside the map. */
+  #app.collapsed { grid-template-columns: minmax(0, 1fr) 92px; }
+  #app.collapsed #tabs { flex-direction: column; border-bottom: 0; }
+  #app.collapsed #tabs button { flex: 0 0 60px; border-bottom: 0; border-left: 3px solid transparent; }
+  #panel-toggle span { display: inline-block; transform: rotate(90deg); }
+  #app:not(.collapsed) #panel-toggle span { transform: rotate(-90deg); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .maplibregl-ctrl-attrib { font-size: 11px; }
@@ -183,3 +192,13 @@ img.missing { visibility: hidden; }
 .btns button.on { background: var(--pine); color: #fff; border-color: var(--pine); }
 details.cleared { margin: 8px 0; } details.cleared summary { font-weight: 700; color: var(--quiet); padding: 8px 0; cursor: pointer; }
 details.cleared .row { opacity: .7; }
+
+/* The map's own top-left controls (distance scale) sit under the status labels. */
+.maplibregl-ctrl-top-left { top: calc(36px + var(--safe-top)); }
+.install { position: relative; }
+.install .x { position: absolute; right: 6px; top: 6px; min-height: 36px; width: 36px; padding: 0; border: 0; background: none; font-size: 18px; }
+#installbar { position: absolute; left: 100px; right: 96px; bottom: 30px; z-index: 3; display: flex; align-items: center; gap: 6px; background: var(--paper); border-radius: 14px; padding: 6px 6px 6px 12px; box-shadow: 0 3px 12px rgba(0,0,0,.3); font-size: 13px; line-height: 1.2; }
+#installbar span { flex: 1; } #installbar b { display: block; font-size: 14px; }
+#installbar button { min-height: 40px; padding: 0 10px; flex: none; }
+#installbar button[data-install="no"] { border: 0; background: none; padding: 0 6px; }
+ol.steps { padding-left: 22px; } ol.steps li { margin: 6px 0; }

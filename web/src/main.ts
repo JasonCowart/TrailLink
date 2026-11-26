@@ -160,7 +160,7 @@ map.on('click', e => {
   state.follow = false;
   popupProps = { ...(best.properties as Record<string, string>) };
   if (useSheetDetails()) {
-    state.detail = true;
+    state.detail = true; setPanel(true);
     tapMarker.setLngLat(e.lngLat).addTo(map);
     renderPane();
     $('#pane').scrollTop = 0;
@@ -171,7 +171,7 @@ map.on('click', e => {
 // Buttons inside the popup.
 for (const el of ['#map', '#pane']) $(el).addEventListener('click', e => {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-rate], button[data-closedetail], button[data-confirm], button[data-act="garage"]'); if (!b) return;
-  if (b.dataset.act === 'garage') { popup.remove(); if (state.detail) { state.detail = false; tapMarker.remove(); } state.tab = 'garage'; render(); $('#pane').scrollTop = 0; return; }
+  if (b.dataset.act === 'garage') { popup.remove(); if (state.detail) { state.detail = false; tapMarker.remove(); } state.tab = 'garage'; setPanel(true); render(); $('#pane').scrollTop = 0; return; }
   if (b.dataset.rate) openRateSheet(b.dataset.rate);
   if (b.dataset.confirm) { void community.confirmTrail(b.dataset.confirm).then(() => { refreshPopup(); toast('Thanks! Three confirmations make a trail verified.'); }); }
   if (b.dataset.closedetail != null) closeDetails();
@@ -975,11 +975,10 @@ $('#sheet').addEventListener('click', e => { const t = e.target as HTMLElement; 
 function renderChips() {
   const p = state.pos;
   $('#chips').innerHTML = [
-    `<span class="chip ${state.online ? 'on' : ''}">${state.online ? 'Online' : 'Offline'}</span>`,
-    `<span class="chip">${p ? `GPS ±${p.acc} m` : 'GPS…'}</span>`,
-    state.recording ? '<span class="chip rec">Recording</span>' : '',
+    `<span class="chip ${state.online ? 'on' : 'off'}">${state.online ? 'Online' : 'Offline'}</span>`,
+    `<span class="chip on">${p ? `GPS ±${p.acc} m` : 'GPS…'}</span>`,
+    state.recording ? '<span class="chip rec">● Recording</span>' : '',
   ].join('');
-  $('#subtitle').textContent = state.recording ? state.recording.name : 'Trail map';
 }
 
 const views: Record<Tab, () => string> = {
@@ -1055,6 +1054,45 @@ const views: Record<Tab, () => string> = {
   },
 };
 
+// ---------------------------------------------------------------- collapsible panel (more room for the map)
+const panelCollapsed = () => $('#app').classList.contains('collapsed');
+function setPanel(open: boolean) {
+  if (open === !panelCollapsed()) return;
+  $('#app').classList.toggle('collapsed', !open);
+  $('#panel-toggle').setAttribute('aria-expanded', String(open));
+  store.set('panelOpen', open);
+  requestAnimationFrame(() => map.resize());
+}
+$('#app').classList.toggle('collapsed', !store.get('panelOpen', false));
+$('#panel-toggle').addEventListener('click', () => setPanel(panelCollapsed()));
+
+// ---------------------------------------------------------------- full screen: a browser always shows its address bar;
+// opened from the home screen, TrailLink runs full screen with no address bar.
+const standalone = () => window.matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || (navigator as { standalone?: boolean }).standalone === true;
+let installEvent: (Event & { prompt: () => Promise<void> }) | null = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvent = e as typeof installEvent; showInstallBar(); });
+window.addEventListener('appinstalled', () => { $('#installbar')?.remove(); toast('TrailLink is on your home screen. Open it from there for full screen.'); });
+function showInstallBar() {
+  if (standalone() || store.get('installDismissed', false) || $('#installbar')) return;
+  $('#mapwrap').insertAdjacentHTML('beforeend', `<div id="installbar"><span><b>Full-screen map</b>Add TrailLink to your home screen to hide the address bar.</span>
+    <button class="primary" data-install="go">${installEvent ? 'Install' : 'How'}</button><button data-install="no" aria-label="Not now">✕</button></div>`);
+}
+function installHelp() {
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  sheet(`<h3>Add TrailLink to your home screen</h3>
+    ${ios ? `<p>In Safari:</p><ol class="steps"><li>Tap the <b>Share</b> button (the square with an arrow).</li><li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b>, then open TrailLink from its new icon.</li></ol>
+      <p class="quiet">Your first sign-in on the home-screen app needs the 6-digit code from the email (the link opens Safari instead).</p>`
+    : `<p>In Chrome:</p><ol class="steps"><li>Tap the <b>⋮</b> menu at the top right.</li><li>Tap <b>Add to Home screen</b> or <b>Install app</b>.</li><li>Open TrailLink from its new icon.</li></ol>`}
+    <p class="quiet">From the home screen it opens full screen, with no address bar, and works offline.</p>
+    <div class="btns"><button class="primary" data-close>Got it</button></div>`);
+}
+$('#mapwrap').addEventListener('click', e => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('#installbar button'); if (!b) return;
+  if (b.dataset.install === 'no') { store.set('installDismissed', true); $('#installbar')?.remove(); return; }
+  if (installEvent) { void installEvent.prompt(); installEvent = null; $('#installbar')?.remove(); } else installHelp();
+});
+setTimeout(showInstallBar, 4000);
+
 function renderPane() {
   const pane = $('#pane');
   const scroll = pane.scrollTop;
@@ -1072,7 +1110,10 @@ function render() {
   renderChips(); renderPane();
 }
 
-$('#tabs').addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-tab]'); if (b) { state.tab = b.dataset.tab as Tab; if (state.tab === 'pins') void community.fetchSharedPins().then(() => community.onChange()); if (state.detail) { state.detail = false; tapMarker.remove(); } render(); } });
+$('#tabs').addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-tab]'); if (b) {
+  // Tapping the open tab hides the panel; any other tab opens it.
+  if (b.dataset.tab === state.tab && !panelCollapsed() && !state.detail) { setPanel(false); return; }
+  setPanel(true); state.tab = b.dataset.tab as Tab; if (state.tab === 'pins') void community.fetchSharedPins().then(() => community.onChange()); if (state.detail) { state.detail = false; tapMarker.remove(); } render(); } });
 
 function paneClick(e: Event) {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button'); if (!b) return;
@@ -1098,7 +1139,7 @@ function paneClick(e: Event) {
   if (b.dataset.editvehicle) vehicleForm(community.garage().find(v => v.id === b.dataset.editvehicle));
   if (b.dataset.ridevehicle) { community.setActive(b.dataset.ridevehicle); afterGarageChange(); toast(`Riding the ${community.activeVehicle()?.nickname}. Forecasts updated.`); }
   if (b.dataset.delvehicle) { const v = community.garage().find(x => x.id === b.dataset.delvehicle); if (v) sheet(`<h3>Remove ${esc(v.nickname)}?</h3><p>Ratings you gave in it keep its setup.</p><div class="btns"><button data-close>Keep it</button><button class="danger" data-act2="delvehicle" data-id="${v.id}">Remove</button></div>`); }
-  if (act === 'admin') { state.tab = 'group'; render(); }
+  if (act === 'admin') { state.tab = 'group'; setPanel(true); render(); }
   if (act === 'admin-refresh') { state.admin.invited = ''; loadRiders(); renderPane(); }
   if (b.dataset.invitesend) void sendInvite(b.dataset.invitesend);
   if (b.dataset.invitecopy) void navigator.clipboard?.writeText(inviteText(b.dataset.invitecopy)).then(() => toast('Invite message copied.'), () => {});

@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'status = look only; setup = apply database changes and sign-in settings; test-email = send the admin a sign-in email'
+        description: 'test-backup = live test of rider backup with throwaway accounts; status = look only; setup = apply database changes and sign-in settings; test-email = send the admin a sign-in email'
         type: choice
-        options: [status, setup, test-email]
+        options: [status, setup, test-email, test-backup]
         default: status
 
 jobs:
@@ -45,3 +45,8 @@ jobs:
       - name: Send the admin a test sign-in email
         if: inputs.action == 'test-email'
         run: node scripts/supabase-admin.mjs test-email
+      - name: Live backup test
+        if: inputs.action == 'test-backup'
+        run: |
+          cd web && npm install --silent && npm i --no-save --silent fake-indexeddb tsx && cd ..
+          node scripts/test-backup.mjs

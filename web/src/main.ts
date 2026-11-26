@@ -4,7 +4,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { FeatureCollection, Point } from 'geojson';
 import './styles.css';
 import { BASE_MAPS, MVUM_TILES, STREET_STYLE_URL, TRAIL_MAXZOOM, TRAIL_TILES, rasterStyle, type BaseMapId } from './maps.ts';
-import { COLORED_LAYERS, OVERVIEW_LAYERS, TRAIL_LAYERS, difficultyLegendHtml, legendHtml, rateSheetHtml, ratingHtml, trailColor, trailPopupHtml, type ColorBy } from './trails.ts';
+import { COLORED_LAYERS, OVERVIEW_LAYERS, TRAIL_LAYERS, difficultyLegendHtml, legendHtml, rateSheetHtml, ratingHtml, rigMarkerImage, rigMarkerLayers, trailColor, trailPopupHtml, type ColorBy, type RatingInfo } from './trails.ts';
+import { LIFTS, LOCKERS, TIRE_SIZES, WIDTHS, bandShift, forecast, rigClass, rigScore, vehicleSummary, vehicleTitle, type Vehicle } from './garage.ts';
 import { VEHICLE_FIT, lengthMiles, levelOf, LEVELS, stepColor, type RiderTrail, type VehicleFit } from './community.ts';
 import { OnlineCommunity, type AdminRider } from './online.ts';
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
@@ -23,6 +24,7 @@ const state = {
   detail: false,
   signin: null as null | { email: string; sent: boolean; busy: boolean; error?: string },
   admin: { riders: null as AdminRider[] | null, busy: false, error: '', invited: '' },
+  rigMarks: store.get('rigMarks', true),
   trailMeta: null as null | { built: string; counts: Record<string, number> },
   follow: true,
   pos: null as null | { lat: number; lon: number; acc: number; alt?: number; speed?: number; heading?: number; t: number },
@@ -73,6 +75,9 @@ function addOverlays() {
   if (!map.getSource('draw')) map.addSource('draw', { type: 'geojson', data: drawGeo() });
   if (!map.getLayer('draw-line')) map.addLayer({ id: 'draw-line', type: 'line', source: 'draw', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#E8501A', 'line-width': 4 } });
   if (!map.getLayer('draw-pts')) map.addLayer({ id: 'draw-pts', type: 'circle', source: 'draw', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-color': '#E8501A', 'circle-stroke-width': 3 } });
+  // ▲ / ▼ markers where your rig changes a trail's difficulty colour.
+  for (const kind of ['harder', 'easier'] as const) if (!map.hasImage(`rig-${kind}`)) map.addImage(`rig-${kind}`, rigMarkerImage(kind), { pixelRatio: 2 });
+  for (const l of [...rigMarkerLayers('trails', 'trails'), ...rigMarkerLayers('rider-trails')]) if (!map.getLayer(l.id)) map.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: rigMarksVisible() ? 'visible' : 'none' } } as maplibregl.LayerSpecification);
   applyColorBy();
   applyRatingStates();
   if (!map.getSource('mvum')) map.addSource('mvum', { type: 'raster', tiles: [MVUM_TILES], tileSize: 256, minzoom: 7, maxzoom: 17, attribution: 'USDA Forest Service MVUM' });
@@ -85,8 +90,11 @@ map.on('style.load', addOverlays);
 // Tap a trail to see who manages it, which vehicles may use it, and when. A generous tap area for gloves.
 const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '300px', className: 'trail-popup' });
 let popupProps: Record<string, string> | null = null;
-function ratingInfo(tid?: string) {
-  return { mine: tid ? community.myRatings().get(tid) : undefined, score: tid ? community.scores().get(tid) : undefined, online: community.mode === 'online' };
+function ratingInfo(tid?: string): RatingInfo {
+  const score = tid ? community.scores().get(tid) : undefined, v = community.activeVehicle();
+  let rig: RatingInfo['rig'] = null;
+  if (v && score) { const value = forecast(score.avg, score.rig, rigScore(v), community.rigSlope()); rig = { name: v.nickname, value, shift: bandShift(score.avg, value), widthIn: v.widthIn }; }
+  return { mine: tid ? community.myRatings().get(tid) : undefined, score, online: community.mode === 'online', rig };
 }
 function popupHtml(p: Record<string, string>) {
   if (p.src === 'RIDER') {
@@ -139,7 +147,8 @@ map.on('click', e => {
 });
 // Buttons inside the popup.
 for (const el of ['#map', '#pane']) $(el).addEventListener('click', e => {
-  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-rate], button[data-closedetail], button[data-confirm]'); if (!b) return;
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-rate], button[data-closedetail], button[data-confirm], button[data-act="garage"]'); if (!b) return;
+  if (b.dataset.act === 'garage') { popup.remove(); if (state.detail) { state.detail = false; tapMarker.remove(); } state.tab = 'trails'; render(); $('#pane').scrollTop = 0; return; }
   if (b.dataset.rate) openRateSheet(b.dataset.rate);
   if (b.dataset.confirm) { void community.confirmTrail(b.dataset.confirm).then(() => { refreshPopup(); toast('Thanks! Three confirmations make a trail verified.'); }); }
   if (b.dataset.closedetail != null) closeDetails();
@@ -157,28 +166,40 @@ function applyColorBy() {
 function riderColor(): unknown {
   if (state.colorBy === 'access') return '#E8501A';
   const own = ['coalesce', ['feature-state', 'comm'], ['get', 'difficulty']];
+  if (state.colorBy === 'rig') return stepColor(['coalesce', ['feature-state', 'rig'], own]);
   return state.colorBy === 'mine' ? ['case', ['!=', ['feature-state', 'mine'], null], stepColor(['feature-state', 'mine']), stepColor(own)] : stepColor(own);
 }
 /** Push every known rating into the map as feature state, keyed by trail id. */
 function applyRatingStates() {
   const mine = community.myRatings(), scores = community.scores();
+  const v = community.activeVehicle(), my = v ? rigScore(v) : 0, slope = community.rigSlope();
   const ids = new Set([...mine.keys(), ...scores.keys()]);
   for (const tid of ids) {
     const target = tid.startsWith('RIDER:') ? { source: 'rider-trails', id: tid } : { source: 'trails', sourceLayer: 'trails', id: tid };
     if (!map.getSource(target.source)) continue;
-    map.setFeatureState(target, { mine: mine.get(tid) ?? null, comm: scores.get(tid)?.avg ?? null });
+    const sc = scores.get(tid), rig = v && sc ? forecast(sc.avg, sc.rig, my, slope) : null;
+    map.setFeatureState(target, { mine: mine.get(tid) ?? null, comm: sc?.avg ?? null, rig, shift: rig != null && sc ? bandShift(sc.avg, rig) : 0 });
   }
+}
+const rigMarksVisible = () => state.trails && state.rigMarks && !!community.activeVehicle();
+function applyRigMarks() {
+  for (const id of ['trails-rig-harder', 'trails-rig-easier', 'rider-trails-rig-harder', 'rider-trails-rig-easier']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', rigMarksVisible() ? 'visible' : 'none');
 }
 function openRateSheet(tid: string) {
   const title = popupProps?.name || (popupProps?.num ? `route ${popupProps.num}` : community.trails().find(t => `RIDER:${t.id}` === tid)?.name) || 'this trail';
-  sheet(rateSheetHtml(tid, title, community.myRatings().get(tid)));
+  const vs = community.garage(), v = community.activeVehicle();
+  const rigLine = !v ? '<p class="quiet">Tip: add your vehicle to the Garage (Trails tab) so your rating helps riders with a similar setup.</p>'
+    : vs.length > 1 ? `<label class="rigpick">Rode it in <select id="ratevehicle">${vs.map(x => `<option value="${x.id}" ${x.id === v.id ? 'selected' : ''}>${esc(x.nickname)} (${rigClass(rigScore(x)).toLowerCase()})</option>`).join('')}</select></label>`
+    : `<p class="quiet">Rode it in your <b>${esc(v.nickname)}</b> (${rigClass(rigScore(v)).toLowerCase()}, ${rigScore(v)}/10).</p>`;
+  sheet(rateSheetHtml(tid, title, community.myRatings().get(tid), rigLine));
 }
 async function vote(tid: string, n: number | null) {
   if (n == null) await community.clearRating(tid); else await community.rate(tid, n);
   const target = tid.startsWith('RIDER:') ? { source: 'rider-trails', id: tid } : { source: 'trails', sourceLayer: 'trails', id: tid };
   map.setFeatureState(target, { mine: n, comm: community.scores().get(tid)?.avg ?? null });
   closeSheet(); refreshPopup();
-  toast(n == null ? 'Rating removed.' : `Rated ${n} (${levelOf(n).band}).${state.colorBy === 'access' ? ' Switch "Color trails by" to see difficulty.' : ''}`);
+  const rode = community.activeVehicle();
+  toast(n == null ? 'Rating removed.' : `Rated ${n} (${levelOf(n).band})${rode ? ` in your ${rode.nickname}` : ''}.${state.colorBy === 'access' ? ' Switch "Color trails by" to see difficulty.' : ''}`);
 }
 
 // ---------------------------------------------------------------- rider account (share trails and ratings)
@@ -210,6 +231,63 @@ function accountHtml(): string {
       </form>`}
     <p class="quiet">${community.mode === 'online' ? 'Connected: you can already see other riders\' ratings and trails.' : status}</p>`;
 }
+
+// ---------------------------------------------------------------- garage: your vehicles and their setup
+function garageHtml(): string {
+  const vs = community.garage(), active = community.activeVehicle();
+  return `<h2>Your garage</h2>
+    <p class="quiet">Your setup changes how hard a trail feels. Ratings record the rig you rode, and trails show a forecast for yours.</p>
+    ${vs.map(v => { const sc = rigScore(v), on = v.id === active?.id; return `<div class="row vehicle${on ? ' on' : ''}">
+      <div class="grow"><b>${esc(vehicleTitle(v))}</b> ${on ? '<span class="tag">Riding</span>' : ''}
+        <div class="quiet">${esc(vehicleSummary(v))}</div>
+        <div class="quiet"><b>${rigClass(sc)}</b> · rig score ${sc}/10</div></div>
+      ${on || vs.length < 2 ? '' : `<button data-ridevehicle="${v.id}">Ride this</button>`}
+      <button data-editvehicle="${v.id}">Edit</button><button data-delvehicle="${v.id}" aria-label="Remove ${esc(v.nickname)}">✕</button></div>`; }).join('')}
+    <div class="btns"><button class="${vs.length ? '' : 'primary'}" data-act="addvehicle">Add a vehicle</button></div>`;
+}
+
+function vehicleForm(v?: Vehicle) {
+  const opt = <T,>(items: { v: T; label: string }[], cur: T) => items.map(i => `<option value="${i.v}" ${i.v === cur ? 'selected' : ''}>${i.label}</option>`).join('');
+  const x: Vehicle = v ?? { id: '', nickname: '', make: '', model: '', widthIn: 64, tireIn: 28, liftIn: 0, lockers: 'none', winch: false, skids: false, sliders: false, updatedAt: '' };
+  sheet(`<h3>${v ? `Edit ${esc(v.nickname)}` : 'Add a vehicle'}</h3>
+    <form id="vehicleform" class="form">
+      ${v ? `<input type="hidden" name="id" value="${v.id}">` : ''}
+      <label>Nickname<input name="nickname" required maxlength="40" value="${esc(x.nickname)}" placeholder="e.g. The Turbo"></label>
+      <div class="cols3">
+        <label>Year<input name="year" inputmode="numeric" maxlength="4" pattern="(19|20)[0-9]{2}" value="${x.year ?? ''}" placeholder="2024"></label>
+        <label>Make<input name="make" maxlength="40" value="${esc(x.make)}" placeholder="Polaris"></label>
+        <label>Model<input name="model" maxlength="60" value="${esc(x.model)}" placeholder="RZR Pro R"></label>
+      </div>
+      <label>Width<select name="widthIn">${opt(WIDTHS, x.widthIn)}</select></label>
+      <div class="cols2">
+        <label>Tire size<select name="tireIn">${opt(TIRE_SIZES.map(n => ({ v: n, label: `${n}"` })), x.tireIn)}</select></label>
+        <label>Lift<select name="liftIn">${opt(LIFTS.map(n => ({ v: n, label: n ? `${n}"${n === 6 ? ' or more' : ''}` : 'Stock height' })), x.liftIn)}</select></label>
+      </div>
+      <label>Lockers<select name="lockers">${opt(LOCKERS, x.lockers)}</select></label>
+      <label class="tg">Skid plates <input type="checkbox" name="skids" ${x.skids ? 'checked' : ''}></label>
+      <label class="tg">Rock sliders <input type="checkbox" name="sliders" ${x.sliders ? 'checked' : ''}></label>
+      <label class="tg">Winch <input type="checkbox" name="winch" ${x.winch ? 'checked' : ''}></label>
+      <p class="quiet" id="rigpreview"></p>
+      <div class="btns"><button type="button" data-close>Cancel</button><button class="primary">Save</button></div>
+    </form>`);
+  updateRigPreview();
+}
+function vehicleFromForm(f: FormData): Omit<Vehicle, 'id' | 'updatedAt'> & { id?: string } {
+  const year = Number(f.get('year'));
+  return {
+    id: String(f.get('id') ?? '') || undefined, nickname: String(f.get('nickname') ?? '').trim() || 'My rig',
+    make: String(f.get('make') ?? '').trim(), model: String(f.get('model') ?? '').trim(), year: year >= 1980 && year <= 2100 ? year : undefined,
+    widthIn: Number(f.get('widthIn')) as Vehicle['widthIn'], tireIn: Number(f.get('tireIn')), liftIn: Number(f.get('liftIn')),
+    lockers: f.get('lockers') as Vehicle['lockers'], winch: f.has('winch'), skids: f.has('skids'), sliders: f.has('sliders'),
+  };
+}
+function updateRigPreview() {
+  const form = document.getElementById('vehicleform') as HTMLFormElement | null, out = document.getElementById('rigpreview');
+  if (!form || !out) return;
+  const sc = rigScore(vehicleFromForm(new FormData(form)));
+  out.innerHTML = `Rig score <b>${sc}/10 · ${rigClass(sc)}</b>. Tires and lift count most, then lockers, then armor.`;
+}
+function afterGarageChange() { applyRatingStates(); applyRigMarks(); refreshPopup(); if (!state.detail) renderPane(); }
 
 // ---------------------------------------------------------------- admin: approve and manage riders
 const APP_URL = `${location.origin}${location.pathname}`;
@@ -274,7 +352,7 @@ function riderTrailHtml(t: RiderTrail) {
     <div class="tp-status" style="--c:${l.color}">${l.band} · ${t.difficulty} of 10 (creator's rating)</div>
     <dl><dt>Vehicles</dt><dd>${esc(VEHICLE_FIT[t.vehicles])}</dd><dt>Length</dt><dd>${lengthMiles(t.coords).toFixed(1)} mi</dd>
       <dt>Created by</dt><dd>${esc(t.createdBy)}</dd><dt>When</dt><dd>${esc(when)}</dd>${t.notes ? `<dt>Notes</dt><dd>${esc(t.notes)}</dd>` : ''}</dl>
-    ${(() => { const r = ratingInfo(`RIDER:${t.id}`); return ratingHtml(`RIDER:${t.id}`, r.mine, r.score, r.online); })()}
+    ${ratingHtml(`RIDER:${t.id}`, ratingInfo(`RIDER:${t.id}`))}
     ${t.verified ? '<div class="tp-status" style="--c:#15803D">Verified by riders</div>' : ''}
     ${!community.isMine(t) && !t.verified ? (community.hasConfirmed(t.id) ? '<p class="quiet">You confirmed this trail. Thanks!</p>' : community.signedIn ? `<button data-confirm="${t.id}">I rode this, it's real</button>` : '<p class="quiet">Sign in (Trails tab) to confirm this trail.</p>') : ''}
     <div class="tp-src">${t.verified ? 'Rider-created trail, confirmed by other riders.' : `Rider-created trail, not yet verified${t.confirmations ? ` (${t.confirmations} of 3 confirmations)` : ''}.`} Check that it's legal to ride before you go.</div>`;
@@ -499,7 +577,7 @@ const views: Record<Tab, () => string> = {
     const mine = community.trails();
     const rides = state.tracks.filter(t => t.endedAt && t.points.length > 1);
     const rated = community.myRatings().size;
-    return `
+    return `${garageHtml()}
       <h2>Add a trail</h2>
       <p class="quiet">Missing a trail? Draw it on the map, or turn one of your recorded rides into a trail.</p>
       <div class="btns"><button class="primary" data-act="draw">Draw on the map</button>
@@ -530,13 +608,17 @@ const views: Record<Tab, () => string> = {
       <div class="seg" role="group" aria-label="Base map">${(Object.keys(BASE_MAPS) as BaseMapId[]).map(id => `<button data-base="${id}" aria-pressed="${state.base === id}">${BASE_MAPS[id].label}</button>`).join('')}</div>
       <label class="tg">OHV trails and roads <input type="checkbox" data-set="trails" ${state.trails ? 'checked' : ''}></label>
       <p class="quiet" style="margin-bottom:4px"><b>Color trails by</b></p>
-      <div class="seg seg3" role="group" aria-label="Color trails by">
+      <div class="seg seg4" role="group" aria-label="Color trails by">
         <button data-colorby="access" aria-pressed="${state.colorBy === 'access'}">Who can ride</button>
         <button data-colorby="community" aria-pressed="${state.colorBy === 'community'}">Difficulty: riders</button>
+        <button data-colorby="rig" aria-pressed="${state.colorBy === 'rig'}">Difficulty: my rig</button>
         <button data-colorby="mine" aria-pressed="${state.colorBy === 'mine'}">Difficulty: mine</button>
       </div>
       ${state.colorBy === 'access' ? legendHtml() : difficultyLegendHtml()}
       ${state.colorBy === 'mine' ? '<p class="quiet">Trails you rated show your rating; the rest show the riders\' rating.</p>' : ''}
+      ${state.colorBy === 'rig' ? (community.activeVehicle() ? `<p class="quiet">Forecast for your <b>${esc(community.activeVehicle()!.nickname)}</b>: the riders' rating, adjusted for how their rigs compare to yours.</p>` : '<p class="quiet">Add your vehicle to the Garage (Trails tab) to see trails colored for your rig.</p>') : ''}
+      <label class="tg"><span><span class="mk harder">▲</span><span class="mk easier">▼</span> Mark trails that are harder or easier for my rig</span> <input type="checkbox" data-set="rigMarks" ${state.rigMarks ? 'checked' : ''}></label>
+      ${state.rigMarks && !community.activeVehicle() ? '<p class="quiet">Markers appear once you add a vehicle to your Garage.</p>' : ''}
       <p class="quiet">Tap any trail for details. Sources: Forest Service Motor Vehicle Use Maps and BLM travel plans (legal designations), plus OpenStreetMap (community data, not a legal designation). Covers ${state.trailMeta ? `${state.trailMeta.counts ? Object.values(state.trailMeta.counts).reduce((a, b) => a + b, 0).toLocaleString() : ''} routes in Colorado and Utah, updated ${new Date(state.trailMeta.built).toLocaleDateString()}` : 'Colorado and Utah'}. Always follow posted signs.</p>
       <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
       <h2>Offline maps</h2>
@@ -590,6 +672,10 @@ $('#pane').addEventListener('click', e => {
   if (b.dataset.base) setBase(b.dataset.base as BaseMapId);
   if (b.dataset.colorby) { state.colorBy = b.dataset.colorby as ColorBy; store.set('colorBy', state.colorBy); applyColorBy(); renderPane(); }
   if (act === 'draw') startDrawing();
+  if (act === 'addvehicle') vehicleForm();
+  if (b.dataset.editvehicle) vehicleForm(community.garage().find(v => v.id === b.dataset.editvehicle));
+  if (b.dataset.ridevehicle) { community.setActive(b.dataset.ridevehicle); afterGarageChange(); toast(`Riding the ${community.activeVehicle()?.nickname}. Forecasts updated.`); }
+  if (b.dataset.delvehicle) { const v = community.garage().find(x => x.id === b.dataset.delvehicle); if (v) sheet(`<h3>Remove ${esc(v.nickname)}?</h3><p>Ratings you gave in it keep its setup.</p><div class="btns"><button data-close>Keep it</button><button class="danger" data-act2="delvehicle" data-id="${v.id}">Remove</button></div>`); }
   if (act === 'admin') { state.tab = 'group'; render(); }
   if (act === 'admin-refresh') { state.admin.invited = ''; loadRiders(); renderPane(); }
   if (b.dataset.invitesend) void sendInvite(b.dataset.invitesend);
@@ -619,7 +705,8 @@ $('#pane').addEventListener('click', e => {
 $('#pane').addEventListener('change', e => {
   const t = e.target as HTMLInputElement;
   if (t.id === 'fromride' && t.value) { const ride = state.tracks.find(r => r.id === t.value); if (ride) newTrailForm(ride.points.map(p => [p.lon, p.lat] as [number, number])); t.value = ''; }
-  if (t.dataset.set === 'trails') { state.trails = t.checked; store.set('trails', t.checked); for (const l of [...TRAIL_LAYERS, ...OVERVIEW_LAYERS]) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', t.checked ? 'visible' : 'none'); if (!t.checked) popup.remove(); }
+  if (t.dataset.set === 'trails') { state.trails = t.checked; store.set('trails', t.checked); for (const l of [...TRAIL_LAYERS, ...OVERVIEW_LAYERS]) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', t.checked ? 'visible' : 'none'); if (!t.checked) popup.remove(); applyRigMarks(); }
+  if (t.dataset.set === 'rigMarks') { state.rigMarks = t.checked; store.set('rigMarks', t.checked); applyRigMarks(); renderPane(); }
   if (t.dataset.set === 'mvum') { state.mvum = t.checked; store.set('mvumImage', t.checked); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', t.checked ? 'visible' : 'none'); }
   if (t.dataset.set === 'keepAwake') { state.keepAwake = t.checked; store.set('keepAwake', t.checked); void applyWakeLock(); }
 });
@@ -643,9 +730,20 @@ $('#pane').addEventListener('submit', e => {
       .catch((err: Error) => { state.signin = { ...si, busy: false, error: err.message }; renderPane(); });
   }
 });
+$('#sheet').addEventListener('change', e => {
+  const t = e.target as HTMLSelectElement;
+  if (t.id === 'ratevehicle') { community.setActive(t.value); afterGarageChange(); }
+  if (t.closest('#vehicleform')) updateRigPreview();
+});
+$('#sheet').addEventListener('input', e => { if ((e.target as HTMLElement).closest('#vehicleform')) updateRigPreview(); });
 $('#sheet').addEventListener('submit', e => {
   e.preventDefault();
   if ((e.target as HTMLElement).id === 'renameform') { community.setName(String(new FormData(e.target as HTMLFormElement).get('name') ?? '')); closeSheet(); void community.sync(); renderPane(); }
+  if ((e.target as HTMLElement).id === 'vehicleform') {
+    const f = new FormData(e.target as HTMLFormElement);
+    const v = community.saveVehicle(vehicleFromForm(f));
+    closeSheet(); afterGarageChange(); toast(`Saved ${v.nickname}: ${rigClass(rigScore(v)).toLowerCase()} (${rigScore(v)}/10).`);
+  }
   if ((e.target as HTMLElement).id === 'noteform') { addPin('note', $<HTMLInputElement>('#notetext').value); closeSheet(); }
   if ((e.target as HTMLElement).id === 'trailform' && pendingCoords) {
     const f = new FormData(e.target as HTMLFormElement);
@@ -661,6 +759,7 @@ $('#sheet').addEventListener('click', e => {
   if (b.dataset.unvote) { void vote(b.dataset.unvote, null); return; }
   if (b.dataset.vote && b.dataset.tid) { void vote(b.dataset.tid, Number(b.dataset.vote)); return; }
   if (b.dataset.act2 === 'deltrail' && b.dataset.id) { void community.deleteTrail(b.dataset.id).then(() => { closeSheet(); popup.remove(); refreshRiderTrails(); renderPane(); }); return; }
+  if (b.dataset.act2 === 'delvehicle' && b.dataset.id) { community.deleteVehicle(b.dataset.id); closeSheet(); afterGarageChange(); return; }
   if (b.dataset.act2 === 'removerider' && b.dataset.id) {
     const email = b.dataset.id; closeSheet(); state.admin.busy = true; renderPane();
     community.adminRemove(email).then(() => { if (state.admin.invited === email) state.admin.invited = ''; toast('Rider removed.'); }, (e: Error) => { state.admin.error = e.message; }).finally(loadRiders);
@@ -716,7 +815,7 @@ $('#btn-center').classList.add('active');
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state } });
 // Invite-only: until this phone has signed in once, show the sign-in screen instead of the app.
 function updateGate() { $('#gate').hidden = community.trusted; }
-community.onChange = () => { updateGate(); refreshRiderTrails(); refreshPopup(); if (state.tab === 'trails' && !state.detail) renderPane(); };
+community.onChange = () => { updateGate(); refreshRiderTrails(); applyRigMarks(); refreshPopup(); if (state.tab === 'trails' && !state.detail) renderPane(); };
 updateGate();
 void community.init().then(updateGate, updateGate);
 $('#gateform').addEventListener('submit', e => {

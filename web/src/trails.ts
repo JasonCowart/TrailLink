@@ -1,8 +1,9 @@
 // How trails are drawn and described. Colour = can a UTV use it; pattern = who says so.
 import type { LayerSpecification } from 'maplibre-gl';
 import { BAND_COLORS, LEVELS, UNRATED_COLOR, levelOf, stepColor, type CommunityScore } from './community.ts';
+import { rigClass } from './garage.ts';
 
-export type ColorBy = 'access' | 'community' | 'mine';
+export type ColorBy = 'access' | 'community' | 'mine' | 'rig';
 
 // Feature properties (from data/build-trails.mjs):
 //   src USFS|BLM|OSM · kind road|trail · utv open|narrow|limited|closed|unknown · name · num · unit
@@ -42,9 +43,12 @@ export function trailColor(by: ColorBy): unknown {
   if (by === 'access') return accessColor;
   const comm = ['feature-state', 'comm'];
   const mine = ['feature-state', 'mine'];
+  const rig = ['feature-state', 'rig'];
   const rated = by === 'mine'
     ? ['case', ['!=', mine, null], stepColor(mine), ['!=', comm, null], stepColor(comm), UNRATED_COLOR]
-    : ['case', ['!=', comm, null], stepColor(comm), UNRATED_COLOR];
+    : by === 'rig'
+      ? ['case', ['!=', rig, null], stepColor(rig), ['!=', comm, null], stepColor(comm), UNRATED_COLOR]
+      : ['case', ['!=', comm, null], stepColor(comm), UNRATED_COLOR];
   return rated;
 }
 /** Zoomed-out view: dots where trails are, grouped and counted. Tapping one zooms in. Hidden once trail lines show. */
@@ -67,6 +71,29 @@ export const OVERVIEW_LAYERS: L[] = [
 
 export const COLORED_LAYERS = ['trails-osm', 'trails-agency', 'trails-agency-restricted'];
 
+/** Markers along trails whose difficulty colour changes in your rig: ▲ harder, ▼ easier. Driven by feature state "shift". */
+export function rigMarkerLayers(source: string, sourceLayer?: string): LayerSpecification[] {
+  return (['harder', 'easier'] as const).map(kind => ({
+    id: `${source}-rig-${kind}`, type: 'symbol', source, ...(sourceLayer ? { 'source-layer': sourceLayer } : {}), minzoom: 10,
+    layout: { 'symbol-placement': 'line', 'symbol-spacing': 220, 'icon-image': `rig-${kind}`, 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+      'icon-rotation-alignment': 'viewport', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.7, 14, 1] },
+    paint: { 'icon-opacity': ['case', ['==', ['feature-state', 'shift'], kind === 'harder' ? 1 : -1], 1, 0] },
+  }) as unknown as LayerSpecification);
+}
+
+/** Draws the ▲ / ▼ marker images (no font needed, so they work offline on every base map). */
+export function rigMarkerImage(kind: 'harder' | 'easier'): ImageData {
+  const size = 44, c = document.createElement('canvas'); c.width = c.height = size;
+  const g = c.getContext('2d')!;
+  g.beginPath(); g.arc(size / 2, size / 2, size / 2 - 3, 0, Math.PI * 2);
+  g.fillStyle = kind === 'harder' ? '#DC2626' : '#15803D'; g.fill();
+  g.lineWidth = 3; g.strokeStyle = '#fff'; g.stroke();
+  g.beginPath(); g.fillStyle = '#fff';
+  if (kind === 'harder') { g.moveTo(22, 11); g.lineTo(33, 29); g.lineTo(11, 29); } else { g.moveTo(22, 33); g.lineTo(33, 15); g.lineTo(11, 15); }
+  g.closePath(); g.fill();
+  return g.getImageData(0, 0, size, size);
+}
+
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 const UTV_TEXT: Record<string, string> = {
@@ -83,17 +110,33 @@ const SRC_TEXT: Record<string, string> = {
   OSM: 'OpenStreetMap (community-mapped)',
 };
 
-export function ratingHtml(tid: string | undefined, mine: number | undefined, score: CommunityScore | undefined, online: boolean): string {
+export interface RatingInfo {
+  mine?: number;
+  score?: CommunityScore;
+  online: boolean;
+  /** Forecast for the rider's selected vehicle; null when the garage is empty. */
+  rig?: { name: string; value: number; shift: -1 | 0 | 1; widthIn: number } | null;
+}
+
+export function ratingHtml(tid: string | undefined, r: RatingInfo): string {
   if (!tid) return '';
+  const { mine, score, online, rig } = r;
   const chip = (n: number) => { const l = levelOf(n); return `<span class="dchip" style="--c:${l.color}">${Math.round(n * 10) / 10} · ${l.band}</span>`; };
+  const ratersRig = score?.rig ?? null;
+  const rigRow = !score ? ''
+    : rig ? `<div><span class="tp-k">Your ${esc(rig.name)}</span> ${chip(rig.value)} <span class="tp-n">${
+        rig.shift < 0 ? '<b class="shift easier">▼ easier for your rig</b>' : rig.shift > 0 ? '<b class="shift harder">▲ harder for your rig</b>' : 'about the same for your rig'}</span>
+        <div class="tp-n">Forecast. Riders rated it in ${ratersRig == null ? `rigs we assume are stock` : `${rigClass(ratersRig).toLowerCase()} rigs on average (${ratersRig}/10)`}.</div></div>`
+    : `<div class="tp-n"><button class="link" data-act="garage">Add your vehicle to the Garage</button> to see how hard it'll be in your rig.</div>`;
   return `<div class="tp-rate">
     <div><span class="tp-k">Riders say</span> ${score ? `${chip(score.avg)} <span class="tp-n">${online ? `${score.count} rating${score.count === 1 ? '' : 's'}` : 'your rating only, until riders are connected'}</span>` : '<span class="tp-n">Not rated yet</span>'}</div>
+    ${rigRow}
     <div><span class="tp-k">You say</span> ${mine ? chip(mine) : '<span class="tp-n">Not rated</span>'}</div>
     <button class="primary" data-rate="${esc(tid)}">${mine ? 'Change my rating' : 'Rate difficulty'}</button>
   </div>`;
 }
 
-export function trailPopupHtml(p: Record<string, string>, r: { mine?: number; score?: CommunityScore; online: boolean } = { online: false }): string {
+export function trailPopupHtml(p: Record<string, string>, r: RatingInfo = { online: false }): string {
   const title = p.name || (p.num ? `${p.kind === 'road' ? 'Road' : 'Trail'} ${p.num}` : p.kind === 'road' ? 'Unnamed road' : 'Unnamed trail');
   const rows: [string, string | undefined][] = [
     ['Route', p.name && p.num ? p.num : undefined],
@@ -106,7 +149,8 @@ export function trailPopupHtml(p: Record<string, string>, r: { mine?: number; sc
     <div class="tp-title">${esc(title)}</div>
     <div class="tp-status" style="--c:${UTV_COLORS[p.utv as keyof typeof UTV_COLORS] ?? UTV_COLORS.unknown}">${esc(UTV_TEXT[p.utv] ?? UTV_TEXT.unknown)}</div>
     <dl>${rows.filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
-    ${ratingHtml(p.tid, r.mine, r.score, r.online)}
+    ${r.rig && r.rig.widthIn > 50 && p.utv === 'narrow' ? `<p class="warn">Your ${esc(r.rig.name)} is too wide for this trail (50" and under only).</p>` : ''}
+    ${ratingHtml(p.tid, r)}
     <div class="tp-src">Source: ${esc(SRC_TEXT[p.src] ?? p.src)}. ${p.src === 'OSM' ? 'Not an official designation.' : 'Follow posted signs; they take priority.'}</div>`;
 }
 
@@ -117,9 +161,10 @@ export function difficultyLegendHtml(): string {
 }
 
 /** The voting sheet: ten levels with what each means. */
-export function rateSheetHtml(tid: string, title: string, mine?: number): string {
+export function rateSheetHtml(tid: string, title: string, mine?: number, rigLine = ''): string {
   return `<h3>How hard is ${esc(title)}?</h3>
-    <p class="quiet">Rate it for a UTV in dry conditions. Pick the number that best matches the hardest stretch most riders will face.</p>
+    <p class="quiet">Rate how hard it was in the vehicle you rode, in dry conditions. Pick the number that best matches the hardest stretch.</p>
+    ${rigLine}
     <div class="levels">${LEVELS.map(l => `<button class="lvl${mine === l.n ? ' on' : ''}" data-vote="${l.n}" data-tid="${esc(tid)}" style="--c:${l.color}"><b>${l.n}</b><span><em>${l.band}</em>${esc(l.text)}</span></button>`).join('')}</div>
     <div class="btns">${mine ? `<button data-unvote="${esc(tid)}">Remove my rating</button>` : ''}<button data-close>Cancel</button></div>`;
 }

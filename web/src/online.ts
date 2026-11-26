@@ -4,9 +4,12 @@
 import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js';
 import { LocalCommunity, type Community, type CommunityScore, type RiderTrail } from './community.ts';
 import { SUPABASE_KEY, SUPABASE_URL } from './config.ts';
+import { effectiveSlope, rigScore, type Vehicle } from './garage.ts';
 
 type Op =
-  | { k: 'rate'; tid: string; n: number }
+  | { k: 'rate'; tid: string; n: number; v?: string | null; s?: number | null }
+  | { k: 'vehicle'; v: Vehicle }
+  | { k: 'delvehicle'; id: string }
   | { k: 'unrate'; tid: string }
   | { k: 'trail'; t: RiderTrail }
   | { k: 'deltrail'; id: string }
@@ -38,6 +41,9 @@ export class OnlineCommunity implements Community {
   private cachedScores = new Map<string, CommunityScore>(Object.entries(read<Record<string, CommunityScore>>('traillink.scores', {})));
   private remote: RiderTrail[] = read('traillink.remoteTrails', []);
   private confirmed = new Set<string>(read<string[]>('traillink.confirmed', []));
+  private vehicles: Vehicle[] = read('traillink.garage', []);
+  private activeId: string | null = read('traillink.activeVehicle', null);
+  private rigModel: { pairs: number; slope: number | null } | null = read('traillink.rigModel', null);
   isAdmin: boolean = read('traillink.isAdmin', false);
   syncState: SyncState = 'offline';
   lastSynced: string | null = read('traillink.lastSynced', null);
@@ -109,7 +115,33 @@ export class OnlineCommunity implements Community {
   }
   setName(name: string) { this.profileName = name.trim(); write('traillink.profileName', this.profileName); this.local.setName(name); }
   myRatings() { return this.local.myRatings(); }
-  async rate(tid: string, n: number) { await this.local.rate(tid, n); this.queue({ k: 'rate', tid, n }); }
+  async rate(tid: string, n: number) {
+    await this.local.rate(tid, n);
+    // Record the rig the rider rode it in, so ratings can be adjusted for other setups.
+    const v = this.activeVehicle();
+    this.queue({ k: 'rate', tid, n, v: v?.id ?? null, s: v ? rigScore(v) : null });
+  }
+
+  // ---------------------------------------------------------------- garage (saved on the phone, shared when signed in)
+  garage() { return [...this.vehicles]; }
+  activeVehicle(): Vehicle | null { return this.vehicles.find(v => v.id === this.activeId) ?? this.vehicles[0] ?? null; }
+  setActive(id: string) { this.activeId = id; write('traillink.activeVehicle', id); this.onChange(); }
+  /** Difficulty levels per rig-score point: measured from riders' ratings once there are enough, otherwise a starting estimate. */
+  rigSlope() { return effectiveSlope(this.rigModel); }
+  saveVehicle(v: Omit<Vehicle, 'id' | 'updatedAt'> & { id?: string }) {
+    const full: Vehicle = { ...v, id: v.id ?? (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`), updatedAt: new Date().toISOString() };
+    const i = this.vehicles.findIndex(x => x.id === full.id);
+    if (i >= 0) this.vehicles[i] = full; else this.vehicles.push(full);
+    write('traillink.garage', this.vehicles);
+    if (i < 0 || !this.activeId) this.setActive(full.id);
+    this.queue({ k: 'vehicle', v: full });
+    return full;
+  }
+  deleteVehicle(id: string) {
+    this.vehicles = this.vehicles.filter(v => v.id !== id); write('traillink.garage', this.vehicles);
+    if (this.activeId === id) { this.activeId = this.vehicles[0]?.id ?? null; write('traillink.activeVehicle', this.activeId); }
+    this.queue({ k: 'delvehicle', id });
+  }
   async clearRating(tid: string) { await this.local.clearRating(tid); this.queue({ k: 'unrate', tid }); }
   scores() {
     const m = new Map(this.cachedScores);
@@ -153,7 +185,8 @@ export class OnlineCommunity implements Community {
   // ---------------------------------------------------------------- upload queue and download
   private queue(op: Op) {
     // A newer change to the same thing replaces the older one.
-    const key = (o: Op) => (o.k === 'rate' || o.k === 'unrate' ? `r:${o.tid}` : o.k === 'trail' ? `t:${o.t.id}` : o.k === 'deltrail' ? `t:${o.id}` : `c:${o.id}`);
+    const key = (o: Op) => (o.k === 'rate' || o.k === 'unrate' ? `r:${o.tid}` : o.k === 'trail' ? `t:${o.t.id}` : o.k === 'deltrail' ? `t:${o.id}`
+      : o.k === 'vehicle' ? `v:${o.v.id}` : o.k === 'delvehicle' ? `v:${o.id}` : `c:${o.id}`);
     this.outbox = [...this.outbox.filter(o => key(o) !== key(op)), op];
     write('traillink.outbox', this.outbox);
     void this.sync();
@@ -161,8 +194,15 @@ export class OnlineCommunity implements Community {
 
   private async run(op: Op): Promise<'done' | 'retry' | 'drop'> {
     const uid = this.session!.user.id;
-    const res =
-      op.k === 'rate' ? await this.sb.from('ratings').upsert({ tid: op.tid, rider_id: uid, difficulty: op.n, rated_at: new Date().toISOString() }, { onConflict: 'tid,rider_id' })
+    const rating = (vehicle: string | null) => this.sb.from('ratings').upsert({ tid: (op as { tid: string }).tid, rider_id: uid, difficulty: (op as { n: number }).n,
+      vehicle_id: vehicle, rig_score: (op as { s?: number | null }).s ?? null, rated_at: new Date().toISOString() }, { onConflict: 'tid,rider_id' });
+    let res =
+      op.k === 'rate' ? await rating(op.v ?? null)
+      : op.k === 'vehicle' ? await this.sb.from('vehicles').upsert({
+          id: op.v.id, nickname: op.v.nickname, make: op.v.make || null, model: op.v.model || null, year: op.v.year ?? null, width_in: op.v.widthIn,
+          tire_in: op.v.tireIn, lift_in: op.v.liftIn, lockers: op.v.lockers, winch: op.v.winch, skids: op.v.skids, sliders: op.v.sliders, updated_at: op.v.updatedAt,
+        }, { onConflict: 'id' })
+      : op.k === 'delvehicle' ? await this.sb.from('vehicles').delete().eq('id', op.id)
       : op.k === 'unrate' ? await this.sb.from('ratings').delete().eq('tid', op.tid).eq('rider_id', uid)
       : op.k === 'trail' ? await this.sb.from('rider_trails').upsert({
           id: op.t.id, name: op.t.name, difficulty: op.t.difficulty, vehicles: op.t.vehicles, notes: op.t.notes ?? null, created_at: op.t.createdAt,
@@ -170,12 +210,30 @@ export class OnlineCommunity implements Community {
         }, { onConflict: 'id', ignoreDuplicates: true })
       : op.k === 'deltrail' ? await this.sb.from('rider_trails').delete().eq('id', op.id)
       : await this.sb.from('trail_confirmations').insert({ trail_id: op.id });
+    // The vehicle was deleted (or never uploaded): keep the rating and its rig score without the link.
+    if (op.k === 'rate' && op.v && res.error?.code === '23503') res = await rating(null);
     if (!res.error) return 'done';
     // Network trouble: keep it for later. Anything the database refuses (bad data, not allowed, duplicate): drop it.
     const msg = `${res.error.message} ${res.error.code ?? ''}`;
     if (/fetch|network|timeout|Failed to/i.test(msg) || !res.error.code) return 'retry';
     console.warn('TrailLink: change refused by the database', op, res.error);
     return 'drop';
+  }
+
+  /** Vehicles saved on another phone appear here too. Changes waiting to upload win. */
+  private mergeVehicles(rows: Record<string, unknown>[]) {
+    const pending = new Set(this.outbox.flatMap(o => (o.k === 'vehicle' ? [o.v.id] : o.k === 'delvehicle' ? [o.id] : [])));
+    const remote: Vehicle[] = rows.map(r => ({
+      id: String(r.id), nickname: String(r.nickname), make: String(r.make ?? ''), model: String(r.model ?? ''), year: r.year == null ? undefined : Number(r.year),
+      widthIn: Number(r.width_in) as Vehicle['widthIn'], tireIn: Number(r.tire_in), liftIn: Number(r.lift_in), lockers: r.lockers as Vehicle['lockers'],
+      winch: !!r.winch, skids: !!r.skids, sliders: !!r.sliders, updatedAt: String(r.updated_at),
+    }));
+    const local = new Map(this.vehicles.map(v => [v.id, v]));
+    // The database's list, except vehicles with changes still waiting to upload (the phone's copy wins for those).
+    const merged = remote.filter(v => !pending.has(v.id)).map(v => { const l = local.get(v.id); return l && Date.parse(l.updatedAt) > Date.parse(v.updatedAt) ? l : v; });
+    for (const v of this.vehicles) if (pending.has(v.id)) merged.push(v);
+    this.vehicles = merged;
+    write('traillink.garage', this.vehicles);
   }
 
   private syncing: Promise<void> | null = null;
@@ -190,18 +248,25 @@ export class OnlineCommunity implements Community {
     this.syncState = 'syncing';
     try {
       if (this.session) {
+        // Vehicles first, so ratings can point at them.
+        this.outbox = [...this.outbox.filter(o => o.k === 'vehicle' || o.k === 'delvehicle'), ...this.outbox.filter(o => o.k !== 'vehicle' && o.k !== 'delvehicle')];
         while (this.outbox.length) {
           const r = await this.run(this.outbox[0]);
           if (r === 'retry') break;
           this.outbox.shift(); write('traillink.outbox', this.outbox);
         }
       }
-      const [scores, trails] = await Promise.all([
-        this.sb.from('trail_scores').select('tid,avg,count').limit(50000),
+      const [scores, trails, model, mine] = await Promise.all([
+        this.sb.from('trail_scores').select('tid,avg,count,rig_avg').limit(50000),
         this.sb.from('rider_trails_public').select('*').limit(5000),
+        this.sb.from('rig_model').select('pairs,slope').maybeSingle(),
+        this.sb.from('vehicles').select('*').eq('owner_id', this.session.user.id),
       ]);
       if (scores.error || trails.error) throw new Error((scores.error ?? trails.error)!.message);
-      this.cachedScores = new Map((scores.data as { tid: string; avg: number; count: number }[]).map(s => [s.tid, { avg: Number(s.avg), count: s.count }]));
+      this.cachedScores = new Map((scores.data as { tid: string; avg: number; count: number; rig_avg: number | null }[])
+        .map(s => [s.tid, { avg: Number(s.avg), count: s.count, rig: s.rig_avg == null ? null : Number(s.rig_avg) }]));
+      if (!model.error && model.data) { this.rigModel = { pairs: model.data.pairs, slope: model.data.slope == null ? null : Number(model.data.slope) }; write('traillink.rigModel', this.rigModel); }
+      if (!mine.error) this.mergeVehicles(mine.data as Record<string, unknown>[]);
       this.remote = (trails.data as RemoteTrailRow[]).map(r => ({
         id: r.id, name: r.name, difficulty: r.difficulty, vehicles: r.vehicles, notes: r.notes ?? undefined,
         createdBy: r.created_by, createdById: r.created_by_id, createdAt: r.created_at, coords: r.geometry.coordinates,

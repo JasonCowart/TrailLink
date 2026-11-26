@@ -48,7 +48,8 @@ export interface RiderTrail {
   confirmations?: number;
 }
 
-export interface CommunityScore { avg: number; count: number }
+/** rig: average rig score of the riders who rated it (null when none of them had a vehicle in their garage). */
+export interface CommunityScore { avg: number; count: number; rig?: number | null }
 
 export interface Community {
   readonly mode: 'local' | 'online';

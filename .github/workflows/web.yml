@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -33,6 +33,15 @@ jobs:
         with:
           name: web-dist
           path: web/dist
+      - name: Save the built site on the web-build branch (for testing)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          cd web/dist
+          git init -q -b web-build
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A && git commit -qm "Built web app from ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" web-build
       - name: Package for GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:

@@ -1,6 +1,7 @@
 // TrailLink web app.
 import maplibregl, { type GeoJSONSource, type Map as MLMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import type { FeatureCollection } from 'geojson';
 import './styles.css';
 import { BASE_MAPS, MVUM_TILES, STREET_STYLE_URL, rasterStyle, type BaseMapId } from './maps.ts';
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
@@ -61,7 +62,7 @@ function setBase(id: BaseMapId) {
   render();
 }
 
-function trackGeo(): GeoJSON.FeatureCollection {
+function trackGeo(): FeatureCollection {
   const t = state.recording;
   return { type: 'FeatureCollection', features: t && t.points.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: t.points.map(p => [p.lon, p.lat]) } }] : [] };
 }

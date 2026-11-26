@@ -29,6 +29,12 @@ export interface AdminRider {
   last_seen: string | null; is_reviewer: boolean; is_admin: boolean; ratings: number; trails: number;
 }
 
+export interface Group { id: string; name: string; code: string }
+export interface GroupMember {
+  riderId: string; name: string; sharing: boolean; joinedAt: string;
+  pos?: { lat: number; lon: number; acc: number | null; speed: number | null; heading: number | null; at: string };
+}
+
 export type SyncState = 'offline' | 'syncing' | 'up-to-date' | 'error';
 
 export class OnlineCommunity implements Community {
@@ -85,7 +91,7 @@ export class OnlineCommunity implements Community {
     const { error } = await this.sb.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' });
     if (error) throw new Error(error.message);
   }
-  async signOut() { await this.sb.auth.signOut(); this.session = null; this.isAdmin = false; write('traillink.isAdmin', false); write('traillink.everSignedIn', false); this.onChange(); }
+  async signOut() { await this.sb.auth.signOut(); this.session = null; this.group = null; this.members = []; this.saveGroup(); this.isAdmin = false; write('traillink.isAdmin', false); write('traillink.everSignedIn', false); this.onChange(); }
   /** True once this phone has signed in, so the app keeps opening on the trail even if the session can't refresh offline. */
   get trusted() { return this.signedIn || read('traillink.everSignedIn', false); }
 
@@ -169,6 +175,74 @@ export class OnlineCommunity implements Community {
   hasConfirmed(id: string) { return this.confirmed.has(id); }
   async confirmTrail(id: string) { this.confirmed.add(id); write('traillink.confirmed', [...this.confirmed]); this.queue({ k: 'confirm', id }); }
   pendingCount() { return this.outbox.length; }
+
+  // ---------------------------------------------------------------- ride groups (need signal to start, join or update; the last
+  // known list and positions stay on the phone for when there's no signal)
+  group: Group | null = read('traillink.group', null);
+  members: GroupMember[] = read('traillink.groupMembers', []);
+  groupUpdated: string | null = read('traillink.groupUpdated', null);
+  get sharing() { const me = this.session?.user.id; return !!this.group && this.members.some(m => m.riderId === me && m.sharing); }
+  private saveGroup() { write('traillink.group', this.group); write('traillink.groupMembers', this.members); write('traillink.groupUpdated', this.groupUpdated); }
+  private needSignal() { if (!navigator.onLine) throw new Error('No signal. Try again when you have service.'); if (!this.session) throw new Error('Sign in first (Trails tab).'); }
+
+  async createGroup(name: string) {
+    this.needSignal();
+    const { data, error } = await this.sb.rpc('create_group', { p_name: name });
+    if (error) throw new Error(error.message);
+    this.group = { id: data.id, name: data.name, code: data.code }; this.members = []; await this.refreshGroup();
+  }
+  async joinGroup(code: string) {
+    this.needSignal();
+    const { data, error } = await this.sb.rpc('join_group', { p_code: code });
+    if (error) throw new Error(error.message);
+    if (this.group && this.group.id !== data.id) await this.sb.rpc('leave_group', { p_group: this.group.id });
+    this.group = { id: data.id, name: data.name, code: data.code }; this.members = []; await this.refreshGroup();
+  }
+  async leaveGroup() {
+    this.needSignal();
+    if (this.group) { const { error } = await this.sb.rpc('leave_group', { p_group: this.group.id }); if (error) throw new Error(error.message); }
+    this.group = null; this.members = []; this.saveGroup(); this.onChange();
+  }
+  async setSharing(on: boolean) {
+    this.needSignal();
+    if (!this.group) return;
+    const { error } = await this.sb.from('group_members').update({ sharing: on }).eq('group_id', this.group.id).eq('rider_id', this.session!.user.id);
+    if (error) throw new Error(error.message);
+    await this.refreshGroup();
+  }
+  /** Latest members and positions. Quietly does nothing without signal. */
+  async refreshGroup() {
+    if (!navigator.onLine || !this.session) return;
+    if (!this.group) {
+      // Pick up a group joined on another phone.
+      const { data } = await this.sb.from('groups').select('id,name,code').limit(1);
+      if (data?.length) this.group = data[0] as Group; else return;
+    }
+    const gid = this.group.id;
+    const [mem, pos] = await Promise.all([
+      this.sb.from('group_members').select('rider_id,sharing,joined_at,profiles(display_name)').eq('group_id', gid),
+      this.sb.from('group_positions').select('rider_id,lat,lon,acc,speed,heading,at').eq('group_id', gid),
+    ]);
+    if (mem.error || pos.error) return;
+    if (!mem.data.some(m => m.rider_id === this.session!.user.id)) { this.group = null; this.members = []; this.saveGroup(); this.onChange(); return; } // removed or group deleted
+    const at = new Map((pos.data as { rider_id: string }[]).map(p => [p.rider_id, p]));
+    this.members = (mem.data as unknown as { rider_id: string; sharing: boolean; joined_at: string; profiles: { display_name: string } | null }[]).map(m => {
+      const p = at.get(m.rider_id) as GroupMember['pos'] & { rider_id: string } | undefined;
+      return { riderId: m.rider_id, name: m.profiles?.display_name ?? 'Rider', sharing: m.sharing, joinedAt: m.joined_at,
+        pos: p ? { lat: p.lat, lon: p.lon, acc: p.acc, speed: p.speed, heading: p.heading, at: p.at } : undefined };
+    });
+    this.groupUpdated = new Date().toISOString();
+    this.saveGroup(); this.onChange();
+  }
+  /** Send this phone's position to the group (only while sharing). */
+  async postPosition(p: { lat: number; lon: number; acc?: number; speed?: number; heading?: number }) {
+    if (!navigator.onLine || !this.session || !this.group || !this.sharing) return false;
+    const { error } = await this.sb.from('group_positions').upsert({
+      group_id: this.group.id, rider_id: this.session.user.id, lat: p.lat, lon: p.lon, acc: p.acc ?? null,
+      speed: p.speed ?? null, heading: Number.isFinite(p.heading) ? p.heading : null, at: new Date().toISOString(),
+    }, { onConflict: 'group_id,rider_id' });
+    return !error;
+  }
 
   // ---------------------------------------------------------------- admin tools (need signal; the database checks the rider is an admin)
   private async rpc<T>(fn: string, args?: Record<string, unknown>): Promise<T> {

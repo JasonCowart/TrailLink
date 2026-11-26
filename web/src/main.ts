@@ -7,7 +7,7 @@ import { BASE_MAPS, MVUM_TILES, STREET_STYLE_URL, TRAIL_MAXZOOM, TRAIL_TILES, ra
 import { COLORED_LAYERS, OVERVIEW_LAYERS, TRAIL_LAYERS, difficultyLegendHtml, legendHtml, rateSheetHtml, ratingHtml, rigMarkerImage, rigMarkerLayers, trailColor, trailPopupHtml, type ColorBy, type RatingInfo } from './trails.ts';
 import { LIFTS, LOCKERS, TIRE_SIZES, WIDTHS, bandShift, forecast, rigClass, rigScore, vehicleSummary, vehicleTitle, type Vehicle } from './garage.ts';
 import { VEHICLE_FIT, lengthMiles, levelOf, LEVELS, stepColor, type RiderTrail, type VehicleFit } from './community.ts';
-import { OnlineCommunity, type AdminRider } from './online.ts';
+import { OnlineCommunity, type AdminRider, type GroupMember } from './online.ts';
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
@@ -25,8 +25,10 @@ const state = {
   signin: null as null | { email: string; sent: boolean; busy: boolean; error?: string },
   admin: { riders: null as AdminRider[] | null, busy: false, error: '', invited: '' },
   rigMarks: store.get('rigMarks', true),
-  panel: null as null | 'layers' | 'basemap' | 'legend',
+  panel: null as null | 'layers' | 'basemap' | 'legend' | 'riders',
   openVehicles: new Set<string>(),
+  groupBusy: false,
+  groupError: '',
   trailMeta: null as null | { built: string; counts: Record<string, number> },
   follow: true,
   pos: null as null | { lat: number; lon: number; acc: number; alt?: number; speed?: number; heading?: number; t: number },
@@ -86,6 +88,16 @@ function addOverlays() {
   if (!map.getLayer('mvum')) map.addLayer({ id: 'mvum', type: 'raster', source: 'mvum', paint: { 'raster-opacity': 0.9 }, layout: { visibility: state.mvum ? 'visible' : 'none' } });
   if (!map.getSource('track')) map.addSource('track', { type: 'geojson', data: trackGeo() });
   if (!map.getLayer('track')) map.addLayer({ id: 'track', type: 'line', source: 'track', paint: { 'line-color': '#E8501A', 'line-width': 4, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  // Group riders who are sharing their location.
+  if (!map.getSource('riders')) map.addSource('riders', { type: 'geojson', data: ridersGeo() });
+  if (!map.getLayer('riders-dot')) map.addLayer({ id: 'riders-dot', type: 'circle', source: 'riders', paint: {
+    'circle-radius': 14, 'circle-color': '#2563EB', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3, 'circle-opacity': ['case', ['get', 'stale'], 0.45, 1], 'circle-stroke-opacity': ['case', ['get', 'stale'], 0.6, 1] } });
+  if (!map.getLayer('riders-label')) map.addLayer({ id: 'riders-label', type: 'symbol', source: 'riders',
+    layout: { 'text-field': ['get', 'initials'], 'text-size': 12, 'text-font': ['Noto Sans Regular'], 'text-allow-overlap': true, 'text-ignore-placement': true },
+    paint: { 'text-color': '#fff' } });
+  if (!map.getLayer('riders-name')) map.addLayer({ id: 'riders-name', type: 'symbol', source: 'riders',
+    layout: { 'text-field': ['get', 'label'], 'text-size': 13, 'text-font': ['Noto Sans Regular'], 'text-offset': [0, 1.9], 'text-anchor': 'top', 'text-allow-overlap': true },
+    paint: { 'text-color': '#1E3A8A', 'text-halo-color': '#fff', 'text-halo-width': 2 } });
 }
 map.on('style.load', addOverlays);
 
@@ -270,6 +282,7 @@ function legendPanelHtml(): string {
         ${sw('<span class="mk easier">▼</span>', 'Easier for your rig')}
         ${sw('<span class="lgdot">12</span>', 'Zoomed out: number of trails nearby (tap to zoom in)')}
         ${sw(line('#E8501A'), 'Your recorded ride')}
+        ${sw('<span class="lgdot rider">JC</span>', 'Group rider sharing location (faded: not seen for 10+ min)')}
       </div>
       <div class="btns"><button data-panel="layers">Change trail colors</button><button class="primary" data-close>Done</button></div>`;
 }
@@ -288,11 +301,11 @@ function basemapPanelHtml(): string {
       ${areas.length ? '<div class="btns"><button data-act="clear-tiles">Delete all saved maps</button></div>' : ''}
       <div class="btns"><button data-close>Done</button></div>`;
 }
-function panelHtml() { return state.panel === 'layers' ? layersPanelHtml() : state.panel === 'legend' ? legendPanelHtml() : basemapPanelHtml(); }
-function openPanel(p: 'layers' | 'basemap' | 'legend') { sheet('', 'panel'); state.panel = p; refreshPanel(); }
+function panelHtml() { return state.panel === 'layers' ? layersPanelHtml() : state.panel === 'legend' ? legendPanelHtml() : state.panel === 'riders' ? `${groupHtml(true)}<div class="btns"><button class="primary" data-close>Done</button></div>` : basemapPanelHtml(); }
+function openPanel(p: 'layers' | 'basemap' | 'legend' | 'riders') { sheet('', 'panel'); state.panel = p; refreshPanel(); }
 /** Keep an open panel current (download progress, toggles). */
 function refreshPanel() {
-  if (!state.panel || $('#sheet').hidden) return;
+  if (!state.panel || $('#sheet').hidden || typingIn('#sheet')) return;
   const body = $('#sheet-body'), top = body.scrollTop;
   body.innerHTML = panelHtml(); body.scrollTop = top; fillStorage();
 }
@@ -356,6 +369,90 @@ function updateRigPreview() {
   out.innerHTML = `Rig score <b>${sc}/10 · ${rigClass(sc)}</b>. Tires and lift count most, then lockers, then armor.`;
 }
 function afterGarageChange() { applyRatingStates(); applyRigMarks(); refreshPopup(); if (!state.detail) renderPane(); }
+
+// ---------------------------------------------------------------- ride groups: riders on the map
+const ago = (iso: string) => {
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} hr ago` : `${Math.round(m / 1440)} d ago`;
+};
+const STALE_MIN = 10;
+const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?';
+
+function ridersGeo(): FeatureCollection {
+  const me = community.session?.user.id;
+  return { type: 'FeatureCollection', features: community.members.filter(m => m.pos && m.sharing && m.riderId !== me).map(m => {
+    const stale = Date.now() - Date.parse(m.pos!.at) > STALE_MIN * 60000;
+    return { type: 'Feature', properties: { id: m.riderId, initials: initials(m.name), label: stale ? `${m.name} · ${ago(m.pos!.at)}` : m.name, stale },
+      geometry: { type: 'Point', coordinates: [m.pos!.lon, m.pos!.lat] } };
+  }) };
+}
+function drawRiders() { (map.getSource('riders') as GeoJSONSource | undefined)?.setData(ridersGeo()); refreshPanel(); }
+
+let lastShare = 0, lastSharedAt: { lat: number; lon: number } | null = null;
+/** While sharing: send my position every 15 s when moving, at least once a minute when parked. */
+function maybeSharePosition() {
+  const p = state.pos;
+  if (!p || !community.sharing || !navigator.onLine) return;
+  const since = Date.now() - lastShare, moved = lastSharedAt ? distanceM(lastSharedAt, p) : Infinity;
+  if (since < 15000 || (moved < 20 && since < 60000)) return;
+  lastShare = Date.now(); lastSharedAt = { lat: p.lat, lon: p.lon };
+  void community.postPosition({ lat: p.lat, lon: p.lon, acc: p.acc, speed: p.speed, heading: p.heading });
+}
+setInterval(maybeSharePosition, 30000);
+
+function memberRow(m: GroupMember): string {
+  const me = m.riderId === community.session?.user.id;
+  const where = me ? (m.sharing ? 'Sharing your location' : 'Not sharing')
+    : !m.sharing ? 'Not sharing location'
+    : !m.pos ? 'Sharing, waiting for a position'
+    : `${state.pos ? `${(distanceM(state.pos, m.pos) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, m.pos))} · ` : ''}seen ${ago(m.pos.at)}`;
+  const stale = m.pos && Date.now() - Date.parse(m.pos.at) > STALE_MIN * 60000;
+  return `<div class="row member"><span class="avatar${m.sharing && m.pos && !stale ? ' live' : ''}">${esc(initials(m.name))}</span>
+    <div class="grow"><b>${esc(m.name)}${me ? ' (you)' : ''}</b><div class="quiet">${where}</div></div>
+    ${!me && m.sharing && m.pos ? `<button data-rider="${m.riderId}">Show</button>` : ''}</div>`;
+}
+
+function groupHtml(compact: boolean): string {
+  if (!community.signedIn) return `<h2>Ride group</h2><p class="quiet">Sign in (Trails tab) to ride with a group.</p>`;
+  const g = community.group, err = state.groupError ? `<p class="quiet" style="color:var(--red)">${esc(state.groupError)}</p>` : '';
+  if (!g) return `<h2>Ride group</h2>
+    <p class="quiet">Start a group for a ride and share its code, or join one. You choose when the group can see your location.</p>
+    <form id="groupstart" class="form"><label>Start a group<input name="name" required maxlength="40" placeholder="e.g. Saturday at Taylor Park"></label>
+      <div class="btns"><button class="primary" ${state.groupBusy ? 'disabled' : ''}>Start group</button></div></form>
+    <form id="groupjoin" class="form"><label>Or join with a code<input name="code" required maxlength="8" autocapitalize="characters" autocomplete="off" placeholder="6-letter code" style="text-transform:uppercase;letter-spacing:3px"></label>
+      <div class="btns"><button ${state.groupBusy ? 'disabled' : ''}>Join group</button></div></form>${err}`;
+  const me = community.session?.user.id;
+  const members = [...community.members].sort((a, b) => (a.riderId === me ? -1 : b.riderId === me ? 1 : a.name.localeCompare(b.name)));
+  const sharingCount = members.filter(m => m.sharing).length;
+  return `<h2>${esc(g.name)}</h2>
+    <div class="row"><div class="grow"><div class="quiet">Join code</div><b class="code">${esc(g.code)}</b></div><button data-act="groupshare">Share code</button></div>
+    <label class="tg"><span><b>Share my location</b><br><span class="quiet">${community.sharing ? 'The group can see where you are.' : 'Off: the group can\'t see you.'}</span></span>
+      <input type="checkbox" data-set="sharing" ${community.sharing ? 'checked' : ''} ${state.groupBusy ? 'disabled' : ''}></label>
+    ${err}
+    <p class="quiet" style="margin:12px 0 4px"><b>Riders (${members.length})</b> · ${sharingCount} sharing${community.groupUpdated ? ` · updated ${ago(community.groupUpdated)}` : ''}${navigator.onLine ? '' : ' · no signal'}</p>
+    ${members.map(memberRow).join('') || '<p class="quiet">Loading…</p>'}
+    <div class="btns">${compact ? '' : '<button data-act="grouprefresh">Refresh</button>'}<button class="danger" data-act="groupleave">Leave group</button></div>
+    <p class="quiet">Group messages are coming next.</p>`;
+}
+
+async function shareGroupCode() {
+  const g = community.group!;
+  const text = `Join my TrailLink ride group "${g.name}": open ${APP_URL}, tap the Group tab and enter code ${g.code}.`;
+  if (navigator.share) { try { await navigator.share({ title: 'TrailLink ride group', text }); return; } catch (e) { if ((e as Error).name === 'AbortError') return; } }
+  location.href = `sms:?&body=${encodeURIComponent(text)}`;
+}
+
+/** Start / join forms (in the Group tab or the Riders panel). Returns true if it handled the form. */
+function groupSubmit(form: HTMLFormElement): boolean {
+  if (form.id !== 'groupstart' && form.id !== 'groupjoin') return false;
+  const f = new FormData(form);
+  state.groupBusy = true; state.groupError = ''; renderPane();
+  const job = form.id === 'groupstart' ? community.createGroup(String(f.get('name') ?? '').trim()) : community.joinGroup(String(f.get('code') ?? ''));
+  job.then(() => toast(form.id === 'groupstart' ? 'Group started. Share the code with your riders.' : `Joined ${community.group?.name}.`),
+    (err: Error) => { state.groupError = err.message; })
+    .finally(() => { state.groupBusy = false; renderPane(); });
+  return true;
+}
 
 // ---------------------------------------------------------------- admin: approve and manage riders
 const APP_URL = `${location.origin}${location.pathname}`;
@@ -509,6 +606,7 @@ function onPosition(p: GeolocationPosition) {
   }
   renderChips();
   if (state.tab === 'ride') renderPane();
+  maybeSharePosition();
 }
 
 function startGps() {
@@ -678,11 +776,8 @@ const views: Record<Tab, () => string> = {
   },
   group() {
     return `${community.isAdmin && community.signedIn ? adminHtml() : ''}
-      <h2>Group riding is coming</h2>
-      <p>Seeing your group on the map and messaging them is the next big step for TrailLink.</p>
-      <div class="card"><b>Already working in the background</b><p class="quiet">The engine that shares positions and messages over every available link, passes them along between riders, and warns when someone drops out of range is built and tested.</p></div>
-      <div class="card"><b>Still to decide</b><p class="quiet">How riders connect with no cell signal. A phone browser can't reach riders directly, so off-grid group tracking needs radios with Android, or a store app.</p></div>
-      <p class="quiet">For now: drop a Regroup point and agree on it before you split up.</p>`;
+      ${groupHtml(false)}
+      <p class="quiet">Positions update when a phone has cell signal. Out of range, the map shows each rider's last known spot and how long ago it was. Agree on a Regroup point (Pins tab) before you split up.</p>`;
   },
 };
 
@@ -720,6 +815,10 @@ function paneClick(e: Event) {
   if (b.dataset.colorby) { state.colorBy = b.dataset.colorby as ColorBy; store.set('colorBy', state.colorBy); applyColorBy(); renderPane(); }
   if (act === 'draw') startDrawing();
   if (act === 'addvehicle') vehicleForm();
+  if (act === 'groupshare' && community.group) void shareGroupCode();
+  if (act === 'groupleave' && community.group) sheet(`<h3>Leave ${esc(community.group.name)}?</h3><p>The group won't see you anymore. You can rejoin with the code.</p><div class="btns"><button data-close>Stay</button><button class="danger" data-act2="leavegroup">Leave</button></div>`);
+  if (act === 'grouprefresh') void community.refreshGroup();
+  if (b.dataset.rider) { const m = community.members.find(x => x.riderId === b.dataset.rider); if (m?.pos) { state.follow = false; if (state.panel) closeSheet(); map.flyTo({ center: [m.pos.lon, m.pos.lat], zoom: Math.max(map.getZoom(), 14) }); } }
   if (b.dataset.togglevehicle) { const id = b.dataset.togglevehicle, o = state.openVehicles; if (o.has(id)) o.delete(id); else o.add(id); renderPane(); }
   if (b.dataset.editvehicle) vehicleForm(community.garage().find(v => v.id === b.dataset.editvehicle));
   if (b.dataset.ridevehicle) { community.setActive(b.dataset.ridevehicle); afterGarageChange(); toast(`Riding the ${community.activeVehicle()?.nickname}. Forecasts updated.`); }
@@ -754,6 +853,12 @@ $('#pane').addEventListener('click', paneClick);
 $('#sheet').addEventListener('click', e => { if (state.panel) paneClick(e); });
 function paneChange(e: Event) {
   const t = e.target as HTMLInputElement;
+  if (t.dataset.set === 'sharing') {
+    const on = t.checked; state.groupBusy = true; state.groupError = '';
+    community.setSharing(on).then(() => { toast(on ? 'Sharing your location with the group.' : 'Stopped sharing. Your location was removed from the group.'); lastShare = 0; maybeSharePosition(); },
+      (err: Error) => { state.groupError = err.message; t.checked = !on; }).finally(() => { state.groupBusy = false; renderPane(); });
+    return;
+  }
   if (t.id === 'fromride' && t.value) { const ride = state.tracks.find(r => r.id === t.value); if (ride) newTrailForm(ride.points.map(p => [p.lon, p.lat] as [number, number])); t.value = ''; }
   if (t.dataset.set === 'trails') { state.trails = t.checked; store.set('trails', t.checked); for (const l of [...TRAIL_LAYERS, ...OVERVIEW_LAYERS]) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', t.checked ? 'visible' : 'none'); if (!t.checked) popup.remove(); applyRigMarks(); }
   if (t.dataset.set === 'rigMarks') { state.rigMarks = t.checked; store.set('rigMarks', t.checked); applyRigMarks(); renderPane(); }
@@ -764,6 +869,7 @@ $('#pane').addEventListener('change', paneChange);
 $('#sheet').addEventListener('change', e => { if (state.panel) paneChange(e); });
 $('#pane').addEventListener('submit', e => {
   e.preventDefault();
+  if (groupSubmit(e.target as HTMLFormElement)) return;
   const form = e.target as HTMLFormElement, f = new FormData(form);
   if (form.id === 'signinform') {
     const email = String(f.get('email') ?? '').trim(), name = String(f.get('name') ?? '').trim();
@@ -790,6 +896,7 @@ $('#sheet').addEventListener('change', e => {
 $('#sheet').addEventListener('input', e => { if ((e.target as HTMLElement).closest('#vehicleform')) updateRigPreview(); });
 $('#sheet').addEventListener('submit', e => {
   e.preventDefault();
+  if (groupSubmit(e.target as HTMLFormElement)) return;
   if ((e.target as HTMLElement).id === 'renameform') { community.setName(String(new FormData(e.target as HTMLFormElement).get('name') ?? '')); closeSheet(); void community.sync(); renderPane(); }
   if ((e.target as HTMLElement).id === 'vehicleform') {
     const f = new FormData(e.target as HTMLFormElement);
@@ -811,6 +918,7 @@ $('#sheet').addEventListener('click', e => {
   if (b.dataset.unvote) { void vote(b.dataset.unvote, null); return; }
   if (b.dataset.vote && b.dataset.tid) { void vote(b.dataset.tid, Number(b.dataset.vote)); return; }
   if (b.dataset.act2 === 'deltrail' && b.dataset.id) { void community.deleteTrail(b.dataset.id).then(() => { closeSheet(); popup.remove(); refreshRiderTrails(); renderPane(); }); return; }
+  if (b.dataset.act2 === 'leavegroup') { closeSheet(); community.leaveGroup().then(() => toast('You left the group.'), (err: Error) => toast(err.message)); return; }
   if (b.dataset.act2 === 'delvehicle' && b.dataset.id) { community.deleteVehicle(b.dataset.id); closeSheet(); afterGarageChange(); return; }
   if (b.dataset.act2 === 'removerider' && b.dataset.id) {
     const email = b.dataset.id; closeSheet(); state.admin.busy = true; renderPane();
@@ -824,6 +932,7 @@ $('#sheet').addEventListener('click', e => {
 $('#btn-layers').addEventListener('click', () => openPanel('layers'));
 $('#btn-base').addEventListener('click', () => openPanel('basemap'));
 $('#btn-legend').addEventListener('click', () => openPanel('legend'));
+$('#btn-riders').addEventListener('click', () => { openPanel('riders'); void community.refreshGroup(); });
 $('#btn-center').addEventListener('click', () => {
   state.follow = true; $('#btn-center').classList.add('active');
   if (state.pos) map.easeTo({ center: [state.pos.lon, state.pos.lat], zoom: Math.max(map.getZoom(), 14) });
@@ -869,9 +978,10 @@ $('#btn-center').classList.add('active');
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state } });
 // Invite-only: until this phone has signed in once, show the sign-in screen instead of the app.
 function updateGate() { $('#gate').hidden = community.trusted; }
-community.onChange = () => { updateGate(); refreshRiderTrails(); applyRigMarks(); refreshPopup(); if ((state.tab === 'trails' || state.tab === 'garage') && !state.detail) renderPane(); };
+// Background updates re-draw the open tab, except while the rider is typing in it.
+const typingIn = (sel: string) => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && (a as HTMLInputElement).type !== 'checkbox' && !!a.closest(sel); };
+community.onChange = () => { updateGate(); refreshRiderTrails(); applyRigMarks(); drawRiders(); refreshPopup(); if (['trails', 'garage', 'group'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
 updateGate();
-void community.init().then(updateGate, updateGate);
 $('#gateform').addEventListener('submit', e => {
   e.preventDefault();
   const email = String(new FormData(e.target as HTMLFormElement).get('email') ?? '').trim();
@@ -883,6 +993,10 @@ $('#gateform').addEventListener('submit', e => {
   );
 });
 setInterval(() => { if (document.visibilityState === 'visible') void community.sync(); }, 120_000);
+// Group positions: check for updates every 20 seconds while the app is open.
+setInterval(() => { if (document.visibilityState === 'visible' && community.group) void community.refreshGroup(); }, 20_000);
+void community.init().then(() => { updateGate(); void community.refreshGroup(); }, updateGate);
+setInterval(() => { if (community.group) drawRiders(); }, 60_000); // keep 'x min ago' labels current
 window.addEventListener('online', () => { void community.sync(); });
 render();
 map.on('load', drawPins);

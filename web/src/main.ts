@@ -11,7 +11,7 @@ import { OnlineCommunity, type AdminRider, type GroupMember, type SharedPin } fr
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from './photos.ts';
-import { REPORTS, REPORT_TYPES, type ReportType } from './reports.ts';
+import { REPORTS, REPORT_TYPES, reportIcon, type ReportType } from './reports.ts';
 import { BADGE_COLORS as BADGE_TRAIL_COLORS, BADGE_ICONS, MILESTONES, badgeSvg, bbox as badgeBbox, coverage, earnedOnRide, rodeIn, type BadgeIcon, type BadgeTrail, type RiderStats } from './badges.ts';
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
 
@@ -778,22 +778,22 @@ function drawPins() {
   for (const [id, m] of pinMarkers) if (!state.pins.find(p => p.id === id)) { m.remove(); pinMarkers.delete(id); }
   for (const p of state.pins) {
     if (sharedOf(p)?.status === 'cleared') { pinMarkers.get(p.id)?.remove(); pinMarkers.delete(p.id); continue; }
-    const label = `${p.photos?.length ? '📷 ' : ''}${pinTitle(p, true)}`;
+    const label = `${p.photos?.length ? '📷 ' : ''}${pinTitle(p)}`, icon = p.kind === 'report' || p.kind === 'hazard' ? p.report ?? 'hazard' : '';
     const old = pinMarkers.get(p.id);
-    if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().textContent === label) continue; old.remove(); }
+    if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().textContent === label && old.getElement().dataset.icon === icon) continue; old.remove(); }
     const el = document.createElement('div');
     el.className = `pin ${p.kind}`;
-    el.textContent = label;
+    el.dataset.icon = icon;
+    el.innerHTML = `${icon ? reportIcon(icon, 22) : ''}<span>${esc(label)}</span>`;
     el.addEventListener('click', ev => { ev.stopPropagation(); pinSheet(p.id); });
     pinMarkers.set(p.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map));
   }
 }
 const PIN_NAMES = { regroup: 'Regroup point', hazard: 'Hazard', note: 'Note', photo: 'Photo', report: 'Report' } as const;
 /** Pin name; with icon=true, report pins start with their icon (for the map). */
-function pinTitle(p: Pin, icon = false) {
+function pinTitle(p: Pin) {
   const r = p.kind === 'report' && p.report ? REPORTS[p.report as ReportType] : null;
-  const base = p.note || (r ? r.label : PIN_NAMES[p.kind]);
-  return r && icon ? `${r.icon} ${base}` : base;
+  return p.note || (r ? r.label : PIN_NAMES[p.kind]);
 }
 /** Drop a pin where you are, or at a spot picked on the map. */
 function addPin(kind: Pin['kind'], note?: string, photos?: string[], at?: { lat: number; lon: number }, report?: ReportType) {
@@ -805,7 +805,7 @@ function addPin(kind: Pin['kind'], note?: string, photos?: string[], at?: { lat:
   if (kind === 'report' || kind === 'hazard') shareOwnPin(pin, 'all');
   else if (store.get('shareNewPins', false) && community.group) shareOwnPin(pin, 'group');
   store.savePins(state.pins); drawPins(); renderPane();
-  toast(`${pinTitle(pin, true)} pinned${at ? '' : ' here'}${pin.share === 'all' ? ' and shared with riders' : pin.share === 'group' ? ' and shared with your group' : ''}`);
+  toast(`${pinTitle(pin)} pinned${at ? '' : ' here'}${pin.share === 'all' ? ' and shared with riders' : pin.share === 'group' ? ' and shared with your group' : ''}`);
   return pin;
 }
 
@@ -828,10 +828,9 @@ const myId = () => community.session?.user.id;
 /** Others' pins I can see: hazard reports from all riders and pins shared with my group. */
 const othersPins = () => community.sharedPins.filter(p => p.riderId !== myId());
 const REPORT_KINDS = new Set(['report', 'hazard']);
-function sharedTitle(p: SharedPin, icon = false) {
+function sharedTitle(p: SharedPin) {
   const r = p.report ? REPORTS[p.report as ReportType] : null;
-  const base = p.note || (r ? r.label : PIN_NAMES[p.kind as Pin['kind']] ?? 'Pin');
-  return r && icon ? `${r.icon} ${base}` : base;
+  return p.note || (r ? r.label : PIN_NAMES[p.kind as Pin['kind']] ?? 'Pin');
 }
 function hazardStatus(p: SharedPin): string {
   if (p.status === 'cleared') return `Cleared by ${esc(community.nameOf(p.clearedBy))} ${p.clearedAt ? ago(p.clearedAt) : ''}`;
@@ -847,7 +846,7 @@ function voteButtons(p: SharedPin) {
 function remotePinSheet(id: string) {
   const p = community.sharedPins.find(x => x.id === id); if (!p) return;
   const hazard = REPORT_KINDS.has(p.kind);
-  sheet(`<h3>${esc(sharedTitle(p, true))}</h3>
+  sheet(`<h3 class="withicon">${REPORT_KINDS.has(p.kind) ? reportIcon(p.report, 36) : ''}${esc(sharedTitle(p))}</h3>
     <p class="quiet">${hazard ? hazardStatus(p) : `Shared with your group by ${esc(p.by)} ${ago(p.createdAt)}`}${state.pos ? ` · ${(distanceM(state.pos, p) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, p))}` : ''}</p>
     ${hazard ? `<p class="quiet">Rode past it? Let other riders know.</p>${voteButtons(p)}` : ''}
     <div class="btns"><button data-act2="gotoshared" data-id="${p.id}">Show on map</button>${community.isReviewer ? `<button class="danger" data-act2="removeshared" data-id="${p.id}">Remove for everyone</button>` : ''}<button class="primary" data-close>Done</button></div>`);
@@ -857,12 +856,12 @@ function drawRemotePins() {
   const show = othersPins().filter(p => p.status === 'active');
   for (const [id, m] of remoteMarkers) if (!show.some(p => p.id === id)) { m.remove(); remoteMarkers.delete(id); }
   for (const p of show) {
-    const label = `${sharedTitle(p, true)} · ${p.by}`;
+    const label = `${sharedTitle(p)} · ${p.by}`, icon = REPORT_KINDS.has(p.kind) ? p.report ?? 'hazard' : '';
     const old = remoteMarkers.get(p.id);
     if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().textContent === label) continue; old.remove(); }
     const el = document.createElement('div');
     el.className = `pin ${p.kind} shared`;
-    el.textContent = label;
+    el.innerHTML = `${icon ? reportIcon(icon, 22) : ''}<span>${esc(label)}</span>`;
     el.addEventListener('click', ev => { ev.stopPropagation(); remotePinSheet(p.id); });
     remoteMarkers.set(p.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map));
   }
@@ -880,7 +879,7 @@ function refreshPlaceBar() {
   $('#placebar')?.remove(); $('#crosshair')?.remove();
   if (!place) return;
   const pin = place.mode === 'move' ? state.pins.find(x => x.id === (place as { pinId: string }).pinId) : null;
-  const what = pin ? pinTitle(pin, true) : place.mode === 'new' && place.report ? `${REPORTS[place.report].icon} ${REPORTS[place.report].label}` : 'pin';
+  const what = pin ? pinTitle(pin) : place.mode === 'new' && place.report ? REPORTS[place.report].label : 'pin';
   $('#mapwrap').insertAdjacentHTML('beforeend', `<div id="crosshair" aria-hidden="true"></div>
     <div id="placebar"><b>${place.mode === 'move' ? `Move ${esc(what)}` : `Place ${esc(what)}`}</b><span>Slide the map until the crosshair is on the spot.</span>
     <div class="btns"><button data-place="cancel">Cancel</button><button class="primary" data-place="ok">${place.mode === 'move' ? 'Save new spot' : 'Drop pin here'}</button></div></div>`);
@@ -914,7 +913,7 @@ function noteSheet(at?: { lat: number; lon: number }) {
 
 // ---------------------------------------------------------------- quick trail reports (the map's Report button)
 function reportGridHtml(act: string) {
-  return `<div class="reportgrid">${REPORT_TYPES.map(t => `<button data-act2="${act}" data-report="${t}"><span>${REPORTS[t].icon}</span>${REPORTS[t].label}</button>`).join('')}</div>`;
+  return `<div class="reportgrid">${REPORT_TYPES.map(t => `<button data-act2="${act}" data-report="${t}">${reportIcon(t, 50)}${REPORTS[t].label}</button>`).join('')}</div>`;
 }
 function openReport() {
   sheet(`<h3>Report on the trail</h3>
@@ -926,7 +925,7 @@ function openReport() {
 function reported(pin: Pin | null) {
   if (!pin) return;
   if (checkBadges()) return;
-  sheet(`<h3>${esc(pinTitle(pin, true))} pinned</h3>
+  sheet(`<h3 class="withicon">${pin.report ? reportIcon(pin.report, 36) : ''}${esc(pinTitle(pin))} pinned</h3>
     <p class="quiet">Add a photo or a note, or move the pin if it's not quite right.</p>
     <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, '📷 Add photo')}<button data-act2="pinnote" data-id="${pin.id}">Add note</button></div>
     <div class="btns"><button data-act2="movepin" data-id="${pin.id}">Move pin</button><button data-act2="undopin" data-id="${pin.id}">Undo</button><button class="primary" data-close>Done</button></div>`);
@@ -1005,7 +1004,7 @@ function removePin(pinId: string) {
 function sharedPinsHtml(): string {
   if (!community.signedIn) return '';
   const pos = state.pos, dist = (p: SharedPin) => (pos ? distanceM(pos, p) : 0);
-  const row = (p: SharedPin) => `<div class="row"><div class="grow"><b>${esc(sharedTitle(p, true))}</b>
+  const row = (p: SharedPin) => `<div class="row">${REPORT_KINDS.has(p.kind) ? reportIcon(p.report, 34) : ''}<div class="grow"><b>${esc(sharedTitle(p))}</b>
     <div class="quiet">${REPORT_KINDS.has(p.kind) ? hazardStatus(p) : `From ${esc(p.by)} ${ago(p.createdAt)}`}${pos ? ` · ${(dist(p) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(pos, p))}` : ''}</div></div>
     <button data-shared="${p.id}">Open</button></div>`;
   const others = othersPins();
@@ -1040,7 +1039,7 @@ function pinSheet(pinId: string) {
     ? `<div class="card"><b>Shared with all riders</b><div class="quiet">${sp ? hazardStatus(sp) : community.signedIn ? 'Uploads when you have signal.' : 'Sign in (Trails tab) to share it.'}</div>${sp ? voteButtons(sp) : ''}</div>`
     : `<label class="tg"><span><b>Share with my group</b><br><span class="quiet">${pin.share === 'group' ? 'Your ride group can see this pin.' : community.group ? `Private. Turn on to show it to ${esc(community.group.name)}.` : 'Private. Join a ride group to share it.'}</span></span>
         <input type="checkbox" data-pinshare="${pin.id}" ${pin.share === 'group' ? 'checked' : ''} ${community.group || pin.share ? '' : 'disabled'}></label>`;
-  sheet(`<div data-pinsheet="${pin.id}"><h3>${esc(pinTitle(pin, true))}</h3>
+  sheet(`<div data-pinsheet="${pin.id}"><h3 class="withicon">${pin.report ? reportIcon(pin.report, 36) : ''}${esc(pinTitle(pin))}</h3>
     <p class="quiet">${when} · ${pin.lat.toFixed(5)}, ${pin.lon.toFixed(5)}</p>
     ${sharing}
     ${(pin.photos ?? []).map(ph => `<figure class="pinphoto"><img data-photo="${ph}" alt="Pin photo">
@@ -1178,7 +1177,7 @@ const views: Record<Tab, () => string> = {
         const ph = pin.photos ?? [];
         const sp = sharedOf(pin);
         const shareTag = sp?.status === 'cleared' ? ' <span class="tag">Cleared</span>' : pin.share === 'all' ? ' <span class="tag">All riders</span>' : pin.share === 'group' ? ' <span class="tag">Group</span>' : '';
-        return `<div class="pinrow"><div class="row"><div class="grow"><b>${esc(pinTitle(pin, true))}</b>${shareTag}<div class="quiet">${d}${d ? ' · ' : ''}${new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div></div>
+        return `<div class="pinrow"><div class="row">${pin.report ? reportIcon(pin.report, 34) : ''}<div class="grow"><b>${esc(pinTitle(pin))}</b>${shareTag}<div class="quiet">${d}${d ? ' · ' : ''}${new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div></div>
           <button data-goto="${pin.id}" aria-label="Show on map">Show</button><button data-movepin="${pin.id}" aria-label="Move pin">Move</button><button data-delpin="${pin.id}" aria-label="Delete pin">✕</button></div>
           <div class="thumbs">${ph.map(id => `<button class="thumb" data-openpin="${pin.id}" aria-label="View photo"><img data-photo="${id}" alt=""></button>`).join('')}${photoInput(`data-addphoto="${pin.id}"`, ph.length ? '+' : '📷 Add photo', ph.length ? 'thumb add' : 'small')}</div></div>`;
       }).join('') : '<p class="quiet">No pins yet. Pins and their photos stay on this phone and work offline.</p>'}

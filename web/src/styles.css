@@ -227,3 +227,13 @@ button.badgerow svg { flex: none; }
 .iconpick { position: relative; display: grid !important; place-items: center; width: 52px; height: 52px; border-radius: 12px; cursor: pointer; }
 .iconpick input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; min-height: 0; cursor: pointer; }
 .iconpick:has(input:checked) { outline: 3px solid var(--ink); }
+/* Report icons: white line icon on a round tile of the report's color */
+.ricon { display: inline-grid; place-items: center; border-radius: 50%; background: var(--c); flex: none; box-shadow: 0 0 0 2px #fff; }
+.ricon svg { display: block; }
+.reportgrid button .ricon { box-shadow: none; margin-bottom: 2px; }
+.pin.report, .pin.hazard { display: flex; align-items: center; gap: 6px; background: #fff; color: var(--ink); padding: 3px 9px 3px 3px; border-radius: 99px; }
+.pin.report .ricon, .pin.hazard .ricon { box-shadow: none; }
+.pin.shared.report, .pin.shared.hazard { outline-color: var(--line); }
+h3.withicon { display: flex; align-items: center; gap: 10px; }
+.row > .ricon { box-shadow: none; }
+#btn-report svg { display: block; margin-bottom: 1px; }

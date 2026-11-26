@@ -74,6 +74,7 @@ label.tg input { width: 24px; height: 24px; accent-color: var(--action); flex: n
 .dialog { background: var(--paper); border-radius: 18px; padding: 20px; width: 100%; max-width: 440px; max-height: 90vh; overflow: auto; }
 .dialog.sos { background: #A51818; color: #fff; }
 .dialog.sos .card { background: #fff; color: var(--ink); }
+.dialog.sos button:not(.danger) { color: var(--ink); }
 .dialog h3 { font: 700 28px/1.05 'Barlow Condensed', sans-serif; margin: 0 0 8px; }
 
 /* Dash tablet: map beside a side panel */

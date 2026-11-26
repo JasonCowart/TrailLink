@@ -35,20 +35,51 @@ jobs:
           sudo make -s -C /tmp/tippecanoe install > /dev/null
           tippecanoe --version
 
+      - name: Restore last good OpenStreetMap extract
+        uses: actions/cache/restore@v4
+        with:
+          path: data/osm-last
+          key: osm-${{ env.STATES }}-${{ github.run_id }}
+          restore-keys: osm-${{ env.STATES }}-
+
       - name: OpenStreetMap tracks and OHV ways
         run: |
-          mkdir -p data/out
+          mkdir -p data/out data/osm-last
+          ok=1
           for st in ${STATES//,/ }; do
             case "$st" in
               CO) name=colorado ;; UT) name=utah ;; AZ) name=arizona ;; NV) name=nevada ;; NM) name=new-mexico ;; WY) name=wyoming ;; ID) name=idaho ;; *) echo "unknown state $st"; exit 1 ;;
             esac
-            curl -sSfL --retry 6 --retry-all-errors --retry-delay 20 -o "/tmp/$name.osm.pbf" "https://download.geofabrik.de/north-america/us/$name-latest.osm.pbf"
+            got=0
+            # Geofabrik first, then the openstreetmap.fr mirror of the same state extracts.
+            for url in "https://download.geofabrik.de/north-america/us/$name-latest.osm.pbf" \
+                       "https://download.openstreetmap.fr/extracts/north-america/us/$name-latest.osm.pbf"; do
+              if curl -sSfL --retry 3 --retry-all-errors --retry-delay 15 --connect-timeout 20 -o "/tmp/$name.osm.pbf" "$url"; then got=1; echo "$st from $url"; break; fi
+              echo "::warning::Could not download $url"
+            done
+            if [ "$got" = 0 ]; then ok=0; break; fi
             osmium tags-filter -O -o "/tmp/$name-ohv.osm.pbf" "/tmp/$name.osm.pbf" \
               w/highway=track w/atv=yes,designated,permissive w/ohv=yes,designated,permissive
             osmium export -O -f geojsonseq --geometry-types=linestring -o "/tmp/$name-ohv.geojsonseq" "/tmp/$name-ohv.osm.pbf"
           done
-          cat /tmp/*-ohv.geojsonseq > data/out/osm.geojsonseq
+          if [ "$ok" = 1 ]; then
+            cat /tmp/*-ohv.geojsonseq > data/out/osm.geojsonseq
+            cp data/out/osm.geojsonseq data/osm-last/osm.geojsonseq
+          elif [ -s data/osm-last/osm.geojsonseq ]; then
+            echo "::warning::OpenStreetMap download failed; using the last good copy"
+            cp data/osm-last/osm.geojsonseq data/out/osm.geojsonseq
+          else
+            echo "::warning::OpenStreetMap download failed and no earlier copy exists; building without community trails"
+            : > data/out/osm.geojsonseq
+          fi
           wc -l data/out/osm.geojsonseq
+
+      - name: Save this OpenStreetMap extract for next time
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/osm-last
+          key: osm-${{ env.STATES }}-${{ github.run_id }}
 
       - name: Forest Service and BLM routes
         run: node data/build-trails.mjs --states "$STATES" --osm data/out/osm.geojsonseq

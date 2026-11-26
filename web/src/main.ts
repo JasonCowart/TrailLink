@@ -4,18 +4,21 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { FeatureCollection } from 'geojson';
 import './styles.css';
 import { BASE_MAPS, MVUM_TILES, STREET_STYLE_URL, TRAIL_MAXZOOM, TRAIL_TILES, rasterStyle, type BaseMapId } from './maps.ts';
-import { TRAIL_LAYERS, trailPopupHtml, legendHtml } from './trails.ts';
+import { COLORED_LAYERS, TRAIL_LAYERS, difficultyLegendHtml, legendHtml, rateSheetHtml, ratingHtml, trailColor, trailPopupHtml, type ColorBy } from './trails.ts';
+import { LocalCommunity, VEHICLE_FIT, lengthMiles, levelOf, LEVELS, stepColor, type Community, type RiderTrail, type VehicleFit } from './community.ts';
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
 
 // ---------------------------------------------------------------- state
-type Tab = 'ride' | 'pins' | 'maps' | 'group';
+type Tab = 'ride' | 'trails' | 'pins' | 'maps' | 'group';
 const state = {
   tab: 'ride' as Tab,
   base: store.get<BaseMapId>('base', 'topo'),
   mvum: store.get('mvumImage', false),
   trails: store.get('trails', true),
+  colorBy: store.get<ColorBy>('colorBy', 'access'),
+  draw: null as null | { coords: [number, number][] },
   trailMeta: null as null | { built: string; counts: Record<string, number> },
   follow: true,
   pos: null as null | { lat: number; lon: number; acc: number; alt?: number; speed?: number; heading?: number; t: number },
@@ -31,6 +34,7 @@ const state = {
 const unfinished = state.tracks.find(t => !t.endedAt);
 if (unfinished) state.recording = unfinished;
 
+const community: Community = new LocalCommunity();
 const $ = <T extends HTMLElement = HTMLElement>(s: string) => document.querySelector(s) as T;
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
@@ -50,8 +54,17 @@ function styleFor(id: BaseMapId) { return id === 'street' ? STREET_STYLE_URL : r
 
 /** Our overlays (MVUM, ride track) are re-added after every style change. */
 function addOverlays() {
-  if (!map.getSource('trails')) map.addSource('trails', { type: 'vector', tiles: [TRAIL_TILES], minzoom: 5, maxzoom: TRAIL_MAXZOOM, attribution: 'USDA Forest Service MVUM, BLM GTLF, © OpenStreetMap contributors' });
+  if (!map.getSource('trails')) map.addSource('trails', { type: 'vector', tiles: [TRAIL_TILES], minzoom: 5, maxzoom: TRAIL_MAXZOOM, promoteId: 'tid', attribution: 'USDA Forest Service MVUM, BLM GTLF, © OpenStreetMap contributors' });
   for (const l of TRAIL_LAYERS) if (!map.getLayer(l.id)) map.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: state.trails ? 'visible' : 'none' } } as maplibregl.LayerSpecification);
+  // Trails riders created (shown dashed until verified), and the line being drawn right now.
+  if (!map.getSource('rider-trails')) map.addSource('rider-trails', { type: 'geojson', data: riderTrailsGeo(), promoteId: 'tid' });
+  if (!map.getLayer('rider-trails-casing')) map.addLayer({ id: 'rider-trails-casing', type: 'line', source: 'rider-trails', paint: { 'line-color': '#fff', 'line-width': 7, 'line-opacity': 0.85 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  if (!map.getLayer('rider-trails')) map.addLayer({ id: 'rider-trails', type: 'line', source: 'rider-trails', paint: { 'line-color': riderColor() as never, 'line-width': 4.5, 'line-dasharray': [3, 1.5] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  if (!map.getSource('draw')) map.addSource('draw', { type: 'geojson', data: drawGeo() });
+  if (!map.getLayer('draw-line')) map.addLayer({ id: 'draw-line', type: 'line', source: 'draw', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#E8501A', 'line-width': 4 } });
+  if (!map.getLayer('draw-pts')) map.addLayer({ id: 'draw-pts', type: 'circle', source: 'draw', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-color': '#E8501A', 'circle-stroke-width': 3 } });
+  applyColorBy();
+  applyRatingStates();
   if (!map.getSource('mvum')) map.addSource('mvum', { type: 'raster', tiles: [MVUM_TILES], tileSize: 256, minzoom: 7, maxzoom: 17, attribution: 'USDA Forest Service MVUM' });
   if (!map.getLayer('mvum')) map.addLayer({ id: 'mvum', type: 'raster', source: 'mvum', paint: { 'raster-opacity': 0.9 }, layout: { visibility: state.mvum ? 'visible' : 'none' } });
   if (!map.getSource('track')) map.addSource('track', { type: 'geojson', data: trackGeo() });
@@ -61,21 +74,132 @@ map.on('style.load', addOverlays);
 
 // Tap a trail to see who manages it, which vehicles may use it, and when. A generous tap area for gloves.
 const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '300px', className: 'trail-popup' });
+let popupProps: Record<string, string> | null = null;
+function ratingInfo(tid?: string) {
+  return { mine: tid ? community.myRatings().get(tid) : undefined, score: tid ? community.scores().get(tid) : undefined, online: community.mode === 'online' };
+}
+function popupHtml(p: Record<string, string>) {
+  if (p.src === 'RIDER') {
+    const t = community.trails().find(x => `RIDER:${x.id}` === p.tid);
+    if (t) return riderTrailHtml(t);
+  }
+  return trailPopupHtml(p, ratingInfo(p.tid));
+}
+function refreshPopup() { if (popup.isOpen() && popupProps) popup.setHTML(popupHtml(popupProps)); }
 map.on('click', e => {
-  if (!state.trails) return;
+  if (state.draw) { addDrawPoint([e.lngLat.lng, e.lngLat.lat]); return; }
   const r = 14;
-  const hits = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers: TRAIL_LAYERS.map(l => l.id).filter(id => map.getLayer(id)) });
+  const layers = [...(state.trails ? TRAIL_LAYERS.map(l => l.id) : []), 'rider-trails'].filter(id => map.getLayer(id) && id !== 'trails-labels' && id !== 'trails-casing');
+  const hits = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers });
   if (!hits.length) return;
-  // Prefer agency data over OpenStreetMap when both are under the finger.
-  const best = hits.sort((a, b) => Number(a.properties.src === 'OSM') - Number(b.properties.src === 'OSM'))[0];
+  // Prefer rider-made trails, then agency data, then OpenStreetMap.
+  const rank = (f: maplibregl.MapGeoJSONFeature) => (f.layer.id === 'rider-trails' ? 0 : f.properties.src === 'OSM' ? 2 : 1);
+  const best = hits.sort((a, b) => rank(a) - rank(b))[0];
   state.follow = false;
-  popup.setLngLat(e.lngLat).setHTML(trailPopupHtml(best.properties as Record<string, string>)).addTo(map);
+  popupProps = { ...(best.properties as Record<string, string>) };
+  popup.setLngLat(e.lngLat).setHTML(popupHtml(popupProps)).addTo(map);
+});
+// Buttons inside the popup.
+$('#map').addEventListener('click', e => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-rate]'); if (!b) return;
+  if (b.dataset.rate) openRateSheet(b.dataset.rate);
 });
 map.on('mousemove', e => {
   if (!state.trails) return;
   const hit = map.queryRenderedFeatures(e.point, { layers: TRAIL_LAYERS.map(l => l.id).filter(id => map.getLayer(id)) }).length;
   map.getCanvas().style.cursor = hit ? 'pointer' : '';
 });
+// ---------------------------------------------------------------- difficulty colours and ratings
+function applyColorBy() {
+  for (const id of COLORED_LAYERS) if (map.getLayer(id)) map.setPaintProperty(id, 'line-color', trailColor(state.colorBy) as never);
+  if (map.getLayer('rider-trails')) map.setPaintProperty('rider-trails', 'line-color', riderColor() as never);
+}
+function riderColor(): unknown {
+  if (state.colorBy === 'access') return '#E8501A';
+  const own = ['coalesce', ['feature-state', 'comm'], ['get', 'difficulty']];
+  return state.colorBy === 'mine' ? ['case', ['!=', ['feature-state', 'mine'], null], stepColor(['feature-state', 'mine']), stepColor(own)] : stepColor(own);
+}
+/** Push every known rating into the map as feature state, keyed by trail id. */
+function applyRatingStates() {
+  const mine = community.myRatings(), scores = community.scores();
+  const ids = new Set([...mine.keys(), ...scores.keys()]);
+  for (const tid of ids) {
+    const target = tid.startsWith('RIDER:') ? { source: 'rider-trails', id: tid } : { source: 'trails', sourceLayer: 'trails', id: tid };
+    if (!map.getSource(target.source)) continue;
+    map.setFeatureState(target, { mine: mine.get(tid) ?? null, comm: scores.get(tid)?.avg ?? null });
+  }
+}
+function openRateSheet(tid: string) {
+  const title = popupProps?.name || (popupProps?.num ? `route ${popupProps.num}` : community.trails().find(t => `RIDER:${t.id}` === tid)?.name) || 'this trail';
+  sheet(rateSheetHtml(tid, title, community.myRatings().get(tid)));
+}
+async function vote(tid: string, n: number | null) {
+  if (n == null) await community.clearRating(tid); else await community.rate(tid, n);
+  const target = tid.startsWith('RIDER:') ? { source: 'rider-trails', id: tid } : { source: 'trails', sourceLayer: 'trails', id: tid };
+  map.setFeatureState(target, { mine: n, comm: community.scores().get(tid)?.avg ?? null });
+  closeSheet(); refreshPopup();
+  toast(n == null ? 'Rating removed.' : `Rated ${n} (${levelOf(n).band}).${state.colorBy === 'access' ? ' Switch "Color trails by" to see difficulty.' : ''}`);
+}
+
+// ---------------------------------------------------------------- rider-created trails
+function riderTrailsGeo(): FeatureCollection {
+  return { type: 'FeatureCollection', features: community.trails().map(t => ({ type: 'Feature', properties: { tid: `RIDER:${t.id}`, src: 'RIDER', name: t.name, difficulty: t.difficulty }, geometry: { type: 'LineString', coordinates: t.coords } })) };
+}
+function refreshRiderTrails() { (map.getSource('rider-trails') as GeoJSONSource | undefined)?.setData(riderTrailsGeo()); applyRatingStates(); }
+function riderTrailHtml(t: RiderTrail) {
+  const l = levelOf(t.difficulty);
+  const when = new Date(t.createdAt).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return `<div class="tp-title">${esc(t.name)}</div>
+    <div class="tp-status" style="--c:${l.color}">${l.band} · ${t.difficulty} of 10 (creator's rating)</div>
+    <dl><dt>Vehicles</dt><dd>${esc(VEHICLE_FIT[t.vehicles])}</dd><dt>Length</dt><dd>${lengthMiles(t.coords).toFixed(1)} mi</dd>
+      <dt>Created by</dt><dd>${esc(t.createdBy)}</dd><dt>When</dt><dd>${esc(when)}</dd>${t.notes ? `<dt>Notes</dt><dd>${esc(t.notes)}</dd>` : ''}</dl>
+    ${(() => { const r = ratingInfo(`RIDER:${t.id}`); return ratingHtml(`RIDER:${t.id}`, r.mine, r.score, r.online); })()}
+    <div class="tp-src">Rider-created trail, not yet verified. Check that it's legal to ride before you go.</div>`;
+}
+function drawGeo(): FeatureCollection {
+  const c = state.draw?.coords ?? [];
+  return { type: 'FeatureCollection', features: [
+    ...(c.length > 1 ? [{ type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: c } }] : []),
+    ...c.map(p => ({ type: 'Feature' as const, properties: {}, geometry: { type: 'Point' as const, coordinates: p } })),
+  ] };
+}
+function refreshDraw() {
+  (map.getSource('draw') as GeoJSONSource | undefined)?.setData(drawGeo());
+  const bar = document.getElementById('drawbar');
+  if (!state.draw) { bar?.remove(); return; }
+  const html = `<b>Tap the map along the trail</b><span>${state.draw.coords.length} points · ${lengthMiles(state.draw.coords).toFixed(2)} mi</span>
+    <div class="btns"><button data-draw="undo" ${state.draw.coords.length ? '' : 'disabled'}>Undo</button><button data-draw="cancel">Cancel</button><button class="primary" data-draw="done" ${state.draw.coords.length > 1 ? '' : 'disabled'}>Done</button></div>`;
+  if (bar) bar.innerHTML = html;
+  else { const d = document.createElement('div'); d.id = 'drawbar'; d.innerHTML = html; $('#mapwrap').appendChild(d); }
+}
+function addDrawPoint(p: [number, number]) { state.draw?.coords.push(p); refreshDraw(); }
+function startDrawing() { popup.remove(); state.follow = false; state.draw = { coords: [] }; refreshDraw(); toast('Tap along the trail to draw it. Zoom in for accuracy.'); }
+$('#mapwrap').addEventListener('click', e => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('#drawbar button'); if (!b || !state.draw) return;
+  if (b.dataset.draw === 'undo') { state.draw.coords.pop(); refreshDraw(); }
+  if (b.dataset.draw === 'cancel') { state.draw = null; refreshDraw(); }
+  if (b.dataset.draw === 'done') { const coords = state.draw.coords; state.draw = null; refreshDraw(); newTrailForm(coords); }
+});
+
+/** The new-trail form: name, difficulty, vehicles, notes. Created by and date/time are filled in automatically. */
+function newTrailForm(coords: [number, number][]) {
+  const me = community.me();
+  const now = new Date().toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  sheet(`<h3>New trail</h3>
+    <form id="trailform" class="form">
+      <label>Trail name<input name="name" required maxlength="60" placeholder="e.g. Cougar Ridge connector"></label>
+      <label>Difficulty
+        <select name="difficulty">${LEVELS.map(l => `<option value="${l.n}" ${l.n === 3 ? 'selected' : ''}>${l.n} · ${l.band}: ${esc(l.text)}</option>`).join('')}</select></label>
+      <label>Vehicles that fit<select name="vehicles">${(Object.keys(VEHICLE_FIT) as VehicleFit[]).map(k => `<option value="${k}">${VEHICLE_FIT[k]}</option>`).join('')}</select></label>
+      <label>Notes<textarea name="notes" rows="3" maxlength="500" placeholder="Conditions, obstacles, gates, best direction…"></textarea></label>
+      <label>Created by<input name="by" required maxlength="40" value="${esc(me?.name ?? '')}" placeholder="Your name or trail name"></label>
+      <p class="quiet">${lengthMiles(coords).toFixed(1)} miles · ${coords.length} points · ${esc(now)}</p>
+      <div class="btns"><button type="button" data-close>Cancel</button><button class="primary">Save trail</button></div>
+    </form>`);
+  pendingCoords = coords;
+}
+let pendingCoords: [number, number][] | null = null;
+
 fetch(TRAIL_TILES.replace('{z}/{x}/{y}.pbf', 'meta.json')).then(r => (r.ok ? r.json() : null)).then(m => { state.trailMeta = m; if (state.tab === 'maps') renderPane(); }).catch(() => {});
 map.on('dragstart', () => { state.follow = false; $('#btn-center').classList.remove('active'); });
 map.on('moveend', () => { const c = map.getCenter(); store.set('view', { c: [c.lng, c.lat], z: map.getZoom() }); });
@@ -246,6 +370,21 @@ const views: Record<Tab, () => string> = {
         <div class="row"><div class="grow"><b>${esc(t.name)}</b><div class="quiet">${st.miles.toFixed(1)} mi · ${st.movingMin} min moving · ${st.gainFt.toLocaleString()} ft climbed</div></div>
         <button data-gpx="${t.id}" aria-label="Export ${esc(t.name)} as GPX">GPX</button></div>`; }).join('')}` : ''}`;
   },
+  trails() {
+    const mine = community.trails();
+    const rides = state.tracks.filter(t => t.endedAt && t.points.length > 1);
+    const rated = community.myRatings().size;
+    return `
+      <h2>Add a trail</h2>
+      <p class="quiet">Missing a trail? Draw it on the map, or turn one of your recorded rides into a trail.</p>
+      <div class="btns"><button class="primary" data-act="draw">Draw on the map</button>
+        ${rides.length ? `<select id="fromride" aria-label="Pick a recorded ride" style="flex:1 1 140px;min-height:48px;border-radius:14px;border:1px solid var(--line);padding:0 10px;background:var(--paper)"><option value="">From a recorded ride…</option>${rides.slice(0, 30).map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select>` : ''}</div>
+      <h2>Your trails</h2>
+      ${mine.length ? mine.map(t => { const l = levelOf(t.difficulty); return `<div class="row"><span class="dchip" style="--c:${l.color}">${t.difficulty}</span><div class="grow"><b>${esc(t.name)}</b><div class="quiet">${lengthMiles(t.coords).toFixed(1)} mi · by ${esc(t.createdBy)} · ${new Date(t.createdAt).toLocaleDateString()}</div></div>
+        <button data-showtrail="${t.id}">Show</button><button data-deltrail="${t.id}" aria-label="Delete ${esc(t.name)}">✕</button></div>`; }).join('') : '<p class="quiet">None yet.</p>'}
+      <h2>Your ratings</h2>
+      <p class="quiet">${rated ? `You've rated ${rated} trail${rated === 1 ? '' : 's'}.` : 'Tap any trail on the map and choose "Rate difficulty".'} ${community.mode === 'local' ? 'Trails and ratings are saved on this phone. They will be shared with other riders once the TrailLink database is connected.' : ''}</p>`;
+  },
   pins() {
     const p = state.pos;
     return `
@@ -264,7 +403,14 @@ const views: Record<Tab, () => string> = {
       <h2>Base map</h2>
       <div class="seg" role="group" aria-label="Base map">${(Object.keys(BASE_MAPS) as BaseMapId[]).map(id => `<button data-base="${id}" aria-pressed="${state.base === id}">${BASE_MAPS[id].label}</button>`).join('')}</div>
       <label class="tg">OHV trails and roads <input type="checkbox" data-set="trails" ${state.trails ? 'checked' : ''}></label>
-      ${legendHtml()}
+      <p class="quiet" style="margin-bottom:4px"><b>Color trails by</b></p>
+      <div class="seg seg3" role="group" aria-label="Color trails by">
+        <button data-colorby="access" aria-pressed="${state.colorBy === 'access'}">Who can ride</button>
+        <button data-colorby="community" aria-pressed="${state.colorBy === 'community'}">Difficulty: riders</button>
+        <button data-colorby="mine" aria-pressed="${state.colorBy === 'mine'}">Difficulty: mine</button>
+      </div>
+      ${state.colorBy === 'access' ? legendHtml() : difficultyLegendHtml()}
+      ${state.colorBy === 'mine' ? '<p class="quiet">Trails you rated show your rating; the rest show the riders\' rating.</p>' : ''}
       <p class="quiet">Tap any trail for details. Sources: Forest Service Motor Vehicle Use Maps and BLM travel plans (legal designations), plus OpenStreetMap (community data, not a legal designation). Covers ${state.trailMeta ? `${state.trailMeta.counts ? Object.values(state.trailMeta.counts).reduce((a, b) => a + b, 0).toLocaleString() : ''} routes in Colorado and Utah, updated ${new Date(state.trailMeta.built).toLocaleDateString()}` : 'Colorado and Utah'}. Always follow posted signs.</p>
       <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
       <h2>Offline maps</h2>
@@ -312,6 +458,10 @@ $('#pane').addEventListener('click', e => {
   else if (act === 'cancel-dl') state.download?.ctrl.abort();
   else if (act === 'clear-tiles') sheet(`<h3>Delete all saved maps?</h3><p>You'll need signal to see maps until you save areas again.</p><div class="btns"><button class="danger" data-act2="confirm-clear">Delete</button><button data-close>Keep them</button></div>`);
   if (b.dataset.base) setBase(b.dataset.base as BaseMapId);
+  if (b.dataset.colorby) { state.colorBy = b.dataset.colorby as ColorBy; store.set('colorBy', state.colorBy); applyColorBy(); renderPane(); }
+  if (act === 'draw') startDrawing();
+  if (b.dataset.showtrail) { const t = community.trails().find(x => x.id === b.dataset.showtrail); if (t) { state.follow = false; const xs = t.coords.map(c => c[0]), ys = t.coords.map(c => c[1]); map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: 60, maxZoom: 15 }); } }
+  if (b.dataset.deltrail) { const t = community.trails().find(x => x.id === b.dataset.deltrail); if (t) sheet(`<h3>Delete ${esc(t.name)}?</h3><p>This removes the trail from this phone.</p><div class="btns"><button data-close>Keep it</button><button class="danger" data-act2="deltrail" data-id="${t.id}">Delete</button></div>`); }
   if (b.dataset.gpx) downloadGpx(b.dataset.gpx);
   if (b.dataset.delpin) { state.pins = state.pins.filter(p => p.id !== b.dataset.delpin); store.savePins(state.pins); drawPins(); renderPane(); }
   if (b.dataset.goto) { const p = state.pins.find(x => x.id === b.dataset.goto); if (p) { state.follow = false; map.flyTo({ center: [p.lon, p.lat], zoom: 15 }); } }
@@ -320,6 +470,7 @@ $('#pane').addEventListener('click', e => {
 });
 $('#pane').addEventListener('change', e => {
   const t = e.target as HTMLInputElement;
+  if (t.id === 'fromride' && t.value) { const ride = state.tracks.find(r => r.id === t.value); if (ride) newTrailForm(ride.points.map(p => [p.lon, p.lat] as [number, number])); t.value = ''; }
   if (t.dataset.set === 'trails') { state.trails = t.checked; store.set('trails', t.checked); for (const l of TRAIL_LAYERS) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', t.checked ? 'visible' : 'none'); if (!t.checked) popup.remove(); }
   if (t.dataset.set === 'mvum') { state.mvum = t.checked; store.set('mvumImage', t.checked); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', t.checked ? 'visible' : 'none'); }
   if (t.dataset.set === 'keepAwake') { state.keepAwake = t.checked; store.set('keepAwake', t.checked); void applyWakeLock(); }
@@ -327,9 +478,20 @@ $('#pane').addEventListener('change', e => {
 $('#sheet').addEventListener('submit', e => {
   e.preventDefault();
   if ((e.target as HTMLElement).id === 'noteform') { addPin('note', $<HTMLInputElement>('#notetext').value); closeSheet(); }
+  if ((e.target as HTMLElement).id === 'trailform' && pendingCoords) {
+    const f = new FormData(e.target as HTMLFormElement);
+    community.setName(String(f.get('by') ?? ''));
+    void community.addTrail({
+      name: String(f.get('name')).trim(), difficulty: Number(f.get('difficulty')), vehicles: f.get('vehicles') as VehicleFit,
+      notes: String(f.get('notes') ?? '').trim() || undefined, coords: pendingCoords,
+    }).then(t => { pendingCoords = null; closeSheet(); refreshRiderTrails(); renderPane(); toast(`Saved "${t.name}".`); });
+  }
 });
 $('#sheet').addEventListener('click', e => {
-  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-act2]'); if (!b) return;
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-act2], button[data-vote], button[data-unvote]'); if (!b) return;
+  if (b.dataset.unvote) { void vote(b.dataset.unvote, null); return; }
+  if (b.dataset.vote && b.dataset.tid) { void vote(b.dataset.tid, Number(b.dataset.vote)); return; }
+  if (b.dataset.act2 === 'deltrail' && b.dataset.id) { void community.deleteTrail(b.dataset.id).then(() => { closeSheet(); popup.remove(); refreshRiderTrails(); renderPane(); }); return; }
   if (b.dataset.act2 === 'confirm-clear') { void clearAllTiles().then(() => { closeSheet(); renderPane(); toast('Saved maps deleted.'); }); }
   if (b.dataset.act2 === 'sos-copy' && state.pos) { void navigator.clipboard?.writeText(`${state.pos.lat.toFixed(5)}, ${state.pos.lon.toFixed(5)}`).then(() => toast('Coordinates copied.'), () => {}); }
 });

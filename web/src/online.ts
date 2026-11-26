@@ -83,6 +83,10 @@ export class OnlineCommunity implements Community {
     if (this.session) { write('traillink.everSignedIn', true); await this.afterSignIn(); } else this.onChange();
   }
 
+  /** The database connection and this rider's id, for the personal backup (backup.ts). */
+  get client() { return this.sb; }
+  get uid() { return this.session?.user.id ?? null; }
+
   // ---------------------------------------------------------------- sign-in (emailed 6-digit code or link; no passwords)
   get signedIn() { return !!this.session; }
   get email() { return this.session?.user.email ?? null; }

@@ -35,6 +35,7 @@ jobs:
           node scripts/supabase-admin.mjs sql supabase/008-vehicle-color.sql
           node scripts/supabase-admin.mjs sql supabase/009-badges.sql
           node scripts/supabase-admin.mjs sql supabase/010-seed-badge-trails.sql
+          node scripts/supabase-admin.mjs sql supabase/011-rider-backup.sql
       - name: Sign-in settings
         if: inputs.action == 'setup'
         run: node scripts/supabase-admin.mjs auth

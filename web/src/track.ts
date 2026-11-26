@@ -12,11 +12,13 @@ const save = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.str
 
 export const store = {
   tracks: () => load<Track[]>('traillink.tracks', []),
-  saveTracks: (t: Track[]) => save('traillink.tracks', t),
+  saveTracks: (t: Track[]) => { save('traillink.tracks', t); store.onSave('tracks'); },
   pins: () => load<Pin[]>('traillink.pins', []),
-  savePins: (p: Pin[]) => save('traillink.pins', p),
+  savePins: (p: Pin[]) => { save('traillink.pins', p); store.onSave('pins'); },
   get: <T>(k: string, d: T) => load<T>(`traillink.${k}`, d),
-  set: (k: string, v: unknown) => save(`traillink.${k}`, v),
+  set: (k: string, v: unknown) => { save(`traillink.${k}`, v); store.onSave(k); },
+  /** Called after every save (the account backup listens here). */
+  onSave: (_key: string) => {},
 };
 
 export function stats(points: Pt[]) {

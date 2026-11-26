@@ -11,6 +11,7 @@ import { OnlineCommunity, type AdminRider, type GroupMember, type SharedPin } fr
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from './photos.ts';
+import { Backup, type Change } from './backup.ts';
 import { REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
 // Small line icons for compact buttons.
 const ico = (d: string) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -246,7 +247,8 @@ function accountHtml(): string {
       <div class="card"><b>${esc(community.me()?.name ?? 'Rider')}</b><div class="quiet">${esc(community.email ?? '')}</div>
       <p class="quiet">${pending ? `${pending} change${pending === 1 ? '' : 's'} waiting to upload. ` : ''}${status}${community.lastSynced ? ` Last synced ${new Date(community.lastSynced).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : ''}</p>
       <div class="btns"><button data-act="sync">Sync now</button><button data-act="rename">Change name</button><button data-act="signout">Sign out</button></div>
-      ${community.isAdmin ? '<div class="btns"><button data-act="admin">Manage riders (admin)</button></div>' : ''}</div>`;
+      ${community.isAdmin ? '<div class="btns"><button data-act="admin">Manage riders (admin)</button></div>' : ''}</div>
+      ${backupHtml()}`;
   }
   const si = state.signin;
   return `<h2>Share with other riders</h2>
@@ -1204,7 +1206,7 @@ const views: Record<Tab, () => string> = {
             <button class="ibtn" data-delpin="${pin.id}" aria-label="Delete ${esc(pinTitle(pin))}" title="Delete">${ICONS.x}</button>
           </span></div>
           ${ph.length ? `<div class="thumbs">${ph.map(id => `<button class="thumb" data-openpin="${pin.id}" aria-label="View photo"><img data-photo="${id}" alt=""></button>`).join('')}</div>` : ''}</div>`;
-      }).join('') : '<p class="quiet">No pins yet. Pins and their photos stay on this phone and work offline.</p>'}
+      }).join('') : '<p class="quiet">No pins yet. Pins work offline and back up to your account when you have signal.</p>'}
       ${community.signedIn ? `<label class="tg"><span>Share my new pins with my group<br><span class="quiet">${community.group ? `Regroup points, notes and photo pins go to ${esc(community.group.name)}. Hazard reports always go to all riders.` : 'Join a ride group first (Group tab). Hazard reports always go to all riders.'}</span></span><input type="checkbox" data-set="shareNewPins" ${store.get('shareNewPins', false) ? 'checked' : ''}></label>` : ''}
       ${sharedPinsHtml()}
       ${loosePhotosHtml()}`;
@@ -1321,7 +1323,7 @@ function paneClick(e: Event) {
     if (r) sheet(`<h3>Remove ${esc(r.display_name ?? r.email)}?</h3><p>${r.joined_at ? `They'll be signed out within the hour and can't sign in again. Their ${r.ratings} rating${r.ratings === 1 ? '' : 's'} and ${r.trails} trail${r.trails === 1 ? '' : 's'} are deleted too.` : 'Their approval is cancelled, so they can\'t sign in.'}</p>
       <div class="btns"><button data-close>Keep</button><button class="danger" data-act2="removerider" data-id="${esc(r.email)}">Remove</button></div>`);
   }
-  if (act === 'sync') void community.sync();
+  if (act === 'sync') { void community.sync(); void backup.run(); }
   if (act === 'signout') void community.signOut().then(() => { state.signin = null; renderPane(); });
   if (act === 'signin-back') { state.signin = state.signin ? { ...state.signin, sent: false, error: undefined } : null; renderPane(); }
   if (act === 'rename') sheet(`<h3>Your name</h3><form id="renameform" class="form"><label>Shown as "created by" on your trails<input name="name" required maxlength="40" value="${esc(community.me()?.name ?? '')}"></label><div class="btns"><button type="button" data-close>Cancel</button><button class="primary">Save</button></div></form>`);
@@ -1345,6 +1347,7 @@ function paneChange(e: Event) {
   const t = e.target as HTMLInputElement;
   if (t.type === 'file') { photoInputChanged(t); return; }
   if (t.dataset.set === 'shareNewPins') { store.set('shareNewPins', t.checked); renderPane(); return; }
+  if (t.dataset.set === 'photoBackup') { store.set('photoBackup', t.checked); toast(t.checked ? 'Photos will back up to your account.' : 'Photos stay on this phone only.'); backup.schedule(500); renderPane(); return; }
   if (t.dataset.pinshare) {
     const pin = state.pins.find(p => p.id === t.dataset.pinshare); if (!pin) return;
     if (t.checked) shareOwnPin(pin, 'group'); else unshareOwnPin(pin);
@@ -1522,11 +1525,69 @@ if ('serviceWorker' in navigator) {
 $('#btn-center').classList.add('active');
 // Test hook: open the app with #debug to reach the map from automated browser tests.
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state } });
+// ---------------------------------------------------------------- account backup (pins, rides, settings, photos)
+// Settings that follow the rider between phones (map position, panel and install prompts stay per phone).
+const SYNCED_SETTINGS = ['base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
+function applySettings(keys: string[]) {
+  for (const k of keys) {
+    if (k === 'base') { const b = store.get<BaseMapId>('base', 'topo'); if (b !== state.base && BASE_MAPS.some(m => m.id === b)) setBase(b); }
+    if (k === 'colorBy') { state.colorBy = store.get<ColorBy>('colorBy', 'access'); applyColorBy(); }
+    if (k === 'trails') { state.trails = store.get('trails', true); for (const l of [...TRAIL_LAYERS, ...OVERVIEW_LAYERS]) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', state.trails ? 'visible' : 'none'); }
+    if (k === 'rigMarks') { state.rigMarks = store.get('rigMarks', true); applyRigMarks(); }
+    if (k === 'mvumImage') { state.mvum = store.get('mvumImage', false); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', state.mvum ? 'visible' : 'none'); }
+    if (k === 'keepAwake') { state.keepAwake = store.get('keepAwake', true); void applyWakeLock(); }
+    if (k === 'loosePhotos') loosePhotos = store.get('loosePhotos', []);
+    if (k === 'activeVehicle') { const id = store.get<string | null>('activeVehicle', null); if (id && community.garage().some(v => v.id === id)) community.setActive(id); }
+  }
+}
+let applyingBackup = false;
+const backup = new Backup(community, {
+  items() {
+    const m = new Map<string, unknown>();
+    for (const p of state.pins) m.set(`pin:${p.id}`, p);
+    for (const t of state.tracks) if (t.endedAt) m.set(`track:${t.id}`, t); // a ride uploads once it's finished
+    for (const k of SYNCED_SETTINGS) { const raw = localStorage.getItem(`traillink.${k}`); if (raw != null) { try { m.set(`setting:${k}`, JSON.parse(raw)); } catch { /* skip */ } } }
+    return m;
+  },
+  photoIds: () => [...state.pins.flatMap(p => p.photos ?? []), ...loosePhotos.map(l => l.id)],
+  apply(changes: Change[]) {
+    applyingBackup = true;
+    try {
+      const pins = changes.filter(c => c.kind === 'pin'), tracks = changes.filter(c => c.kind === 'track'), settings = changes.filter(c => c.kind === 'setting');
+      if (pins.length) {
+        for (const c of pins) { state.pins = state.pins.filter(p => p.id !== c.id); if (c.data) state.pins.push(c.data as Pin); }
+        state.pins.sort((a, b) => b.t - a.t); store.savePins(state.pins); drawPins();
+      }
+      if (tracks.length) {
+        for (const c of tracks) { if (state.recording?.id === c.id) continue; state.tracks = state.tracks.filter(t => t.id !== c.id); if (c.data) state.tracks.push(c.data as Track); }
+        state.tracks.sort((a, b) => b.startedAt - a.startedAt); store.saveTracks(state.tracks);
+      }
+      for (const c of settings) { if (c.data == null) localStorage.removeItem(`traillink.${c.id}`); else store.set(c.id, c.data); }
+      if (settings.length) applySettings(settings.map(c => c.id));
+    } finally { applyingBackup = false; }
+    if (!state.detail && !typingIn('#pane')) renderPane();
+  },
+});
+store.onSave = k => { if (!applyingBackup && (k === 'pins' || k === 'tracks' || SYNCED_SETTINGS.includes(k))) backup.schedule(); };
+backup.onStatus = () => { if (state.tab === 'trails' && !state.detail && !typingIn('#pane')) renderPane(); };
+function backupHtml(): string {
+  const when = backup.lastAt ? new Date(backup.lastAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+  const status = backup.state === 'syncing' ? 'Backing up…' : backup.state === 'error' ? "Backup couldn't finish. It will try again." : !navigator.onLine ? 'Offline: backs up when you have signal.' : when ? `Last backed up ${when}.` : 'Not backed up yet.';
+  return `<div class="card"><b>Backup</b>
+    <p class="quiet">Your pins, recorded rides, photos and settings are saved to your account whenever you have signal: only you can see them. They show up in the Home Screen app, in Safari and on a new phone. ${status}${backup.photosWaiting ? ` ${backup.photosWaiting} photo${backup.photosWaiting === 1 ? '' : 's'} waiting.` : ''}</p>
+    <label class="tg"><span>Back up photos<br><span class="quiet">Uses mobile data. Turn off to keep photos on this phone only.</span></span><input type="checkbox" data-set="photoBackup" ${backup.photoBackup ? 'checked' : ''}></label></div>`;
+}
+let wasSignedIn = false;
+function backupOnSignIn() { if (community.signedIn && !wasSignedIn) backup.schedule(500); wasSignedIn = community.signedIn; }
+setInterval(() => { if (document.visibilityState === 'visible') backup.schedule(0); }, 180_000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') backup.schedule(500); });
+window.addEventListener('online', () => backup.schedule(1000));
+
 // Invite-only: until this phone has signed in once, show the sign-in screen instead of the app.
 function updateGate() { $('#gate').hidden = community.trusted; }
 // Background updates re-draw the open tab, except while the rider is typing in it.
 const typingIn = (sel: string) => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && (a as HTMLInputElement).type !== 'checkbox' && !!a.closest(sel); };
-community.onChange = () => { updateGate(); refreshRiderTrails(); applyRigMarks(); drawRiders(); drawRemotePins(); drawPins(); refreshPopup(); if (['trails', 'garage', 'group', 'pins'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
+community.onChange = () => { updateGate(); backupOnSignIn(); refreshRiderTrails(); applyRigMarks(); drawRiders(); drawRemotePins(); drawPins(); refreshPopup(); if (['trails', 'garage', 'group', 'pins'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
 updateGate();
 // Sign-in by emailed code: typed into this TrailLink, so it never jumps to another browser.
 let gateEmail = '';

@@ -51,11 +51,26 @@ export async function photoUrl(id: string): Promise<string | null> {
   if (!b) return null;
   const u = URL.createObjectURL(b); urls.set(id, u); return u;
 }
-export async function photoBlob(id: string): Promise<Blob | null> {
+/** The photo as saved on this phone, without trying the account backup. */
+export async function localPhoto(id: string): Promise<Blob | null> {
   if (blobs.has(id)) return blobs.get(id)!;
   const b = await tx<Blob | undefined>('readonly', s => s.get(id) as IDBRequest<Blob | undefined>).catch(() => undefined);
   if (b) blobs.set(id, b);
   return b ?? null;
+}
+// Photos taken on another phone (or in Safari vs. the Home Screen app) come down from the rider's account backup.
+let remote: ((id: string) => Promise<Blob | null>) | null = null;
+const fetching = new Map<string, Promise<Blob | null>>();
+export function setRemotePhotos(fn: (id: string) => Promise<Blob | null>) { remote = fn; }
+export async function photoBlob(id: string): Promise<Blob | null> {
+  const b = await localPhoto(id);
+  if (b || !remote) return b;
+  if (!fetching.has(id)) fetching.set(id, remote(id).catch(() => null).then(async r => {
+    fetching.delete(id);
+    if (r) { await tx('readwrite', s => s.put(r, id)).catch(() => {}); blobs.set(id, r); }
+    return r;
+  }));
+  return fetching.get(id)!;
 }
 /** Already-loaded photo, for actions that must start straight from a tap (the phone's share menu). */
 export const loadedBlob = (id: string) => blobs.get(id) ?? null;

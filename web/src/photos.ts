@@ -43,14 +43,40 @@ export async function savePhoto(file: Blob): Promise<string> {
 }
 
 const urls = new Map<string, string>();
+const blobs = new Map<string, Blob>();
 /** An object URL for showing the photo (cached). Null if the photo is gone. */
 export async function photoUrl(id: string): Promise<string | null> {
   if (urls.has(id)) return urls.get(id)!;
-  const b = await tx<Blob | undefined>('readonly', s => s.get(id) as IDBRequest<Blob | undefined>).catch(() => undefined);
+  const b = await photoBlob(id);
   if (!b) return null;
   const u = URL.createObjectURL(b); urls.set(id, u); return u;
 }
+export async function photoBlob(id: string): Promise<Blob | null> {
+  if (blobs.has(id)) return blobs.get(id)!;
+  const b = await tx<Blob | undefined>('readonly', s => s.get(id) as IDBRequest<Blob | undefined>).catch(() => undefined);
+  if (b) blobs.set(id, b);
+  return b ?? null;
+}
+/** Already-loaded photo, for actions that must start straight from a tap (the phone's share menu). */
+export const loadedBlob = (id: string) => blobs.get(id) ?? null;
+
+/**
+ * Offer files to the phone's photo library. Browsers can't write to Photos silently: this opens the share menu
+ * (iPhone: "Save Image"; Android: save to device) or, where sharing files isn't supported, downloads them.
+ */
+export async function saveToLibrary(files: File[]): Promise<'shared' | 'downloaded' | 'cancelled'> {
+  if (!files.length) return 'cancelled';
+  if (navigator.canShare?.({ files })) {
+    try { await navigator.share({ files }); return 'shared'; } catch (e) { if ((e as Error).name === 'AbortError') return 'cancelled'; }
+  }
+  for (const f of files) {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name;
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+  return 'downloaded';
+}
 export async function deletePhoto(id: string) {
+  blobs.delete(id);
   const u = urls.get(id); if (u) { URL.revokeObjectURL(u); urls.delete(id); }
   await tx('readwrite', s => s.delete(id)).catch(() => {});
 }

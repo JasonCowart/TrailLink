@@ -10,7 +10,7 @@ import { VEHICLE_FIT, lengthMiles, levelOf, LEVELS, stepColor, type RiderTrail, 
 import { OnlineCommunity, type AdminRider, type GroupMember } from './online.ts';
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
-import { deletePhoto, hydratePhotos, savePhoto } from './photos.ts';
+import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from './photos.ts';
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
 
 // ---------------------------------------------------------------- state
@@ -669,10 +669,30 @@ function photoInputChanged(t: HTMLInputElement) {
 }
 const photoInput = (attr: string, label: string, cls = '') =>
   `<label class="filebtn ${cls}">${label}<input type="file" accept="image/*" multiple ${attr}></label>`;
+/** Photos taken in the last two minutes were probably just shot with the camera (not picked from the library). */
+const freshlyTaken = (f: File) => Date.now() - f.lastModified < 120_000;
 async function storePhotos(files: FileList | null): Promise<string[]> {
-  const ids: string[] = [];
-  for (const f of Array.from(files ?? [])) { try { ids.push(await savePhoto(f)); } catch { toast("Couldn't save a photo. The phone may be out of space."); } }
+  const list = Array.from(files ?? []), ids: string[] = [];
+  for (const f of list) { try { ids.push(await savePhoto(f)); } catch { toast("Couldn't save a photo. The phone may be out of space."); } }
+  // New camera shots aren't in the photo library yet: offer to save them there (a browser needs one tap for this).
+  const fresh = list.filter(freshlyTaken);
+  if (fresh.length) {
+    pendingLibrary = fresh;
+    sheet(`<h3>Save to your photo library?</h3>
+      <p class="quiet">${fresh.length === 1 ? 'This photo is' : `These ${fresh.length} photos are`} saved in TrailLink. Save ${fresh.length === 1 ? 'it' : 'them'} to your phone's photos too.${/iPhone|iPad/.test(navigator.userAgent) ? ' On the next screen, tap <b>Save Image</b>.' : ''}</p>
+      <div class="btns"><button data-close>Not now</button><button class="primary" data-act2="savefresh">Save to Photos</button></div>`);
+  }
   return ids;
+}
+let pendingLibrary: File[] = [];
+const photoFile = (id: string, t = Date.now()) => {
+  const b = loadedBlob(id);
+  return b ? new File([b], `TrailLink-${new Date(t).toISOString().slice(0, 16).replace(/[:T]/g, '-')}-${id.slice(0, 4)}.jpg`, { type: b.type || 'image/jpeg' }) : null;
+};
+async function libraryResult(files: File[]) {
+  const r = await saveToLibrary(files);
+  if (r === 'downloaded') toast('Saved to your Downloads. Open it to add it to Photos.');
+  return r;
 }
 /** New photo pin where you are. */
 async function photoPin(files: FileList | null) {
@@ -681,24 +701,48 @@ async function photoPin(files: FileList | null) {
   if (ids.length) addPin('photo', undefined, ids);
 }
 async function addPhotosTo(pinId: string, files: FileList | null) {
+  const wasViewing = !$('#sheet').hidden && !!$('#sheet-body').querySelector('[data-pinsheet]');
   const ids = await storePhotos(files);
   const pin = state.pins.find(p => p.id === pinId);
   if (!pin || !ids.length) return;
   pin.photos = [...(pin.photos ?? []), ...ids];
   store.savePins(state.pins); drawPins(); renderPane();
-  if (!$('#sheet').hidden && $('#sheet-body').querySelector('[data-pinsheet]')) pinSheet(pinId);
+  if (wasViewing && !pendingLibrary.length) pinSheet(pinId);
   toast(`${ids.length} photo${ids.length === 1 ? '' : 's'} added.`);
 }
-async function removePhoto(pinId: string, photoId: string) {
+
+// Photos are never deleted with a pin. Taking a photo off a pin, or deleting the pin, keeps the photo here.
+interface LoosePhoto { id: string; t: number; lat: number; lon: number; from: string }
+let loosePhotos: LoosePhoto[] = store.get('loosePhotos', []);
+function keepLoose(pin: Pin, ids: string[]) {
+  loosePhotos = [...ids.map(id => ({ id, t: pin.t, lat: pin.lat, lon: pin.lon, from: pin.note || PIN_NAMES[pin.kind] })), ...loosePhotos];
+  store.set('loosePhotos', loosePhotos);
+}
+function unpinPhoto(pinId: string, photoId: string) {
   const pin = state.pins.find(p => p.id === pinId); if (!pin) return;
   pin.photos = (pin.photos ?? []).filter(x => x !== photoId);
-  await deletePhoto(photoId);
+  keepLoose(pin, [photoId]);
   store.savePins(state.pins); drawPins(); renderPane(); pinSheet(pinId);
+  toast('Photo taken off the pin. It\'s kept under "Photos from deleted pins".');
 }
-async function removePin(pinId: string) {
+function removePin(pinId: string) {
   const pin = state.pins.find(p => p.id === pinId);
-  for (const ph of pin?.photos ?? []) await deletePhoto(ph);
+  if (pin?.photos?.length) keepLoose(pin, pin.photos);
   state.pins = state.pins.filter(p => p.id !== pinId); store.savePins(state.pins); drawPins(); renderPane();
+}
+function loosePhotosHtml(): string {
+  if (!loosePhotos.length) return '';
+  return `<h2>Photos from deleted pins</h2>
+    <p class="quiet">Photos are never deleted with a pin. Tap one to save it to your phone's photos.</p>
+    <div class="thumbs">${loosePhotos.map(l => `<button class="thumb" data-loose="${l.id}" aria-label="Photo from ${esc(l.from)}"><img data-photo="${l.id}" alt=""></button>`).join('')}</div>`;
+}
+function looseSheet(id: string) {
+  const l = loosePhotos.find(x => x.id === id); if (!l) return;
+  sheet(`<h3>${esc(l.from)}</h3><p class="quiet">${new Date(l.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · ${l.lat.toFixed(5)}, ${l.lon.toFixed(5)}</p>
+    <figure class="pinphoto"><img data-photo="${l.id}" alt="Photo"></figure>
+    <div class="btns"><button data-act2="savephoto" data-id="${l.id}" data-t="${l.t}">Save to Photos</button><button data-act2="looseask" data-id="${l.id}">Delete from TrailLink</button></div>
+    <div class="btns"><button class="primary" data-close>Done</button></div>`);
+  hydratePhotos($('#sheet-body'));
 }
 /** A pin with its photos, full width. Opened from the Pins tab or by tapping the pin on the map. */
 function pinSheet(pinId: string) {
@@ -706,8 +750,9 @@ function pinSheet(pinId: string) {
   const when = new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   sheet(`<div data-pinsheet="${pin.id}"><h3>${esc(pin.note || PIN_NAMES[pin.kind])}</h3>
     <p class="quiet">${when} · ${pin.lat.toFixed(5)}, ${pin.lon.toFixed(5)}</p>
-    ${(pin.photos ?? []).map(ph => `<figure class="pinphoto"><img data-photo="${ph}" alt="Pin photo"><button class="small" data-act2="delphoto" data-pin="${pin.id}" data-id="${ph}">Delete photo</button></figure>`).join('') || '<p class="quiet">No photos yet.</p>'}
-    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, 'Add photo')}<button class="primary" data-close>Done</button></div></div>`);
+    ${(pin.photos ?? []).map(ph => `<figure class="pinphoto"><img data-photo="${ph}" alt="Pin photo">
+      <div class="btns"><button class="small" data-act2="savephoto" data-id="${ph}" data-t="${pin.t}">Save to Photos</button><button class="small" data-act2="unpinphoto" data-pin="${pin.id}" data-id="${ph}">Take off pin</button></div></figure>`).join('') || '<p class="quiet">No photos yet.</p>'}
+    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, '📷 Add photo')}<button class="primary" data-close>Done</button></div></div>`);
   hydratePhotos($('#sheet-body'));
 }
 
@@ -838,7 +883,8 @@ const views: Record<Tab, () => string> = {
         return `<div class="pinrow"><div class="row"><div class="grow"><b>${esc(pin.note || PIN_NAMES[pin.kind])}</b><div class="quiet">${d}${d ? ' · ' : ''}${new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div></div>
           <button data-goto="${pin.id}" aria-label="Show on map">Show</button><button data-delpin="${pin.id}" aria-label="Delete pin">✕</button></div>
           <div class="thumbs">${ph.map(id => `<button class="thumb" data-openpin="${pin.id}" aria-label="View photo"><img data-photo="${id}" alt=""></button>`).join('')}${photoInput(`data-addphoto="${pin.id}"`, ph.length ? '+' : '📷 Add photo', ph.length ? 'thumb add' : 'small')}</div></div>`;
-      }).join('') : '<p class="quiet">No pins yet. Pins and their photos stay on this phone and work offline.</p>'}`;
+      }).join('') : '<p class="quiet">No pins yet. Pins and their photos stay on this phone and work offline.</p>'}
+      ${loosePhotosHtml()}`;
   },
   group() {
     return `${community.isAdmin && community.signedIn ? adminHtml() : ''}
@@ -911,8 +957,9 @@ function paneClick(e: Event) {
   if (b.dataset.showtrail) { const t = community.trails().find(x => x.id === b.dataset.showtrail); if (t) { state.follow = false; const xs = t.coords.map(c => c[0]), ys = t.coords.map(c => c[1]); map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: 60, maxZoom: 15 }); } }
   if (b.dataset.deltrail) { const t = community.trails().find(x => x.id === b.dataset.deltrail); if (t) sheet(`<h3>Delete ${esc(t.name)}?</h3><p>This removes the trail from this phone.</p><div class="btns"><button data-close>Keep it</button><button class="danger" data-act2="deltrail" data-id="${t.id}">Delete</button></div>`); }
   if (b.dataset.gpx) downloadGpx(b.dataset.gpx);
-  if (b.dataset.delpin) { const pin = state.pins.find(p => p.id === b.dataset.delpin); if (pin?.photos?.length) sheet(`<h3>Delete this pin?</h3><p>Its ${pin.photos.length} photo${pin.photos.length === 1 ? '' : 's'} will be deleted from this phone too.</p><div class="btns"><button data-close>Keep it</button><button class="danger" data-act2="delpin" data-id="${pin.id}">Delete</button></div>`); else if (pin) void removePin(pin.id); }
+  if (b.dataset.delpin) { const pin = state.pins.find(p => p.id === b.dataset.delpin); if (pin) { removePin(pin.id); if (pin.photos?.length) toast(`Pin deleted. Its photo${pin.photos.length === 1 ? ' is' : 's are'} kept under "Photos from deleted pins".`); } }
   if (b.dataset.openpin) pinSheet(b.dataset.openpin);
+  if (b.dataset.loose) looseSheet(b.dataset.loose);
   if (b.dataset.goto) { const p = state.pins.find(x => x.id === b.dataset.goto); if (p) { state.follow = false; map.flyTo({ center: [p.lon, p.lat], zoom: 15 }); } }
   if (b.dataset.forget) { forgetArea(b.dataset.forget); renderPane(); }
   if (b.dataset.showarea) { const a = savedAreas().find(x => x.id === b.dataset.showarea); if (a) { state.follow = false; closeSheet(); map.fitBounds([[a.bounds.w, a.bounds.s], [a.bounds.e, a.bounds.n]]); } }
@@ -988,8 +1035,12 @@ $('#sheet').addEventListener('click', e => {
   if (b.dataset.unvote) { void vote(b.dataset.unvote, null); return; }
   if (b.dataset.vote && b.dataset.tid) { void vote(b.dataset.tid, Number(b.dataset.vote)); return; }
   if (b.dataset.act2 === 'deltrail' && b.dataset.id) { void community.deleteTrail(b.dataset.id).then(() => { closeSheet(); popup.remove(); refreshRiderTrails(); renderPane(); }); return; }
-  if (b.dataset.act2 === 'delpin' && b.dataset.id) { closeSheet(); void removePin(b.dataset.id); return; }
-  if (b.dataset.act2 === 'delphoto' && b.dataset.pin && b.dataset.id) { void removePhoto(b.dataset.pin, b.dataset.id); return; }
+  if (b.dataset.act2 === 'savefresh') { const files = pendingLibrary; pendingLibrary = []; closeSheet(); void libraryResult(files); return; }
+  if (b.dataset.act2 === 'savephoto' && b.dataset.id) { const f = photoFile(b.dataset.id, Number(b.dataset.t) || Date.now()); if (f) void libraryResult([f]); else toast('Photo still loading. Try again.'); return; }
+  if (b.dataset.act2 === 'unpinphoto' && b.dataset.pin && b.dataset.id) { unpinPhoto(b.dataset.pin, b.dataset.id); return; }
+  if (b.dataset.act2 === 'looseask' && b.dataset.id) { sheet(`<h3>Delete this photo from TrailLink?</h3><p>It will be gone from TrailLink. If you saved it to your phone's photos, that copy stays.</p><div class="btns"><button data-act2="loosekeep" data-id="${b.dataset.id}">Keep it</button><button class="danger" data-act2="loosedel" data-id="${b.dataset.id}">Delete</button></div>`); return; }
+  if (b.dataset.act2 === 'loosekeep' && b.dataset.id) { looseSheet(b.dataset.id); return; }
+  if (b.dataset.act2 === 'loosedel' && b.dataset.id) { const id = b.dataset.id; loosePhotos = loosePhotos.filter(x => x.id !== id); store.set('loosePhotos', loosePhotos); void deletePhoto(id); closeSheet(); renderPane(); return; }
   if (b.dataset.act2 === 'leavegroup') { closeSheet(); community.leaveGroup().then(() => toast('You left the group.'), (err: Error) => toast(err.message)); return; }
   if (b.dataset.act2 === 'delvehicle' && b.dataset.id) { community.deleteVehicle(b.dataset.id); closeSheet(); afterGarageChange(); return; }
   if (b.dataset.act2 === 'removerider' && b.dataset.id) {

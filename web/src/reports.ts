@@ -1,11 +1,11 @@
 // Quick trail reports, like a car navigation app's "report" buttons, but for trail problems.
 // Each has its own line icon (24×24, drawn in code so it works offline) and color.
 export const REPORTS = {
-  tree:    { label: 'Downed tree', color: '#15803D', path: '<path d="M2 21h20"/><path d="M5 21l6.5-8"/><circle cx="15" cy="8.5" r="5"/><path d="M12.5 11.5 10.5 9"/><path d="M5 21l-1.5-1.5M5 21l2.2-.6"/>' },
+  tree:    { label: 'Downed tree', color: '#15803D', path: '<path d="M2 21h20"/><path d="M15.7 7.9 L16.0 14.8 L14.3 13.7 L14.0 20.1 L4.8 13.7 L10.7 11.1 L9.1 10.0Z"/><path d="M9.4 16.9L6.5 21.0"/>' },
   rocks:   { label: 'Rockslide', color: '#78716C', path: '<path d="M3 20 6 13l5-2 3 3-1 6z"/><path d="M13 20l2-5 4-1 2 6z"/><path d="M15 4l1.5 1.5M19 7l1 1M12 6l1 1"/>' },
   washout: { label: 'Washout', color: '#B45309', path: '<path d="M3 8h6M15 8h6M3 16h6M15 16h6"/><path d="M11 5l2 3-2 3 2 3-2 3 2 3"/>' },
   water:   { label: 'Deep water', color: '#2563EB', path: '<path d="M3 10c2-2 4 2 6 0s4 2 6 0 4 2 6 0"/><path d="M3 15c2-2 4 2 6 0s4 2 6 0 4 2 6 0"/><path d="M3 20c2-2 4 2 6 0s4 2 6 0 4 2 6 0"/>' },
-  mud:     { label: 'Deep mud', color: '#92400E', path: '<path d="M6 14.5a6 6 0 0 1 12 0"/><path d="M9 14.5a3 3 0 0 1 6 0"/><path d="M6.4 12.4L4.7 11.8M8.6 9.6L7.5 8.1M12.0 8.5L12.0 6.7M15.4 9.6L16.5 8.1M17.6 12.4L19.3 11.8"/><path d="M2 16c2.5-1.5 4.5 1.5 7 0s4.5 1.5 7 0 4 1.5 6 0"/><path d="M4 20.5c2-1.2 4 1.2 6 0s4 1.2 6 0"/>' },
+  mud:     { label: 'Deep mud', color: '#92400E', path: '<path d="M6 15a6 6 0 0 1 12 0"/><path d="M8.4 15a3.6 3.6 0 0 1 7.2 0"/><path d="M8.9 13.2L6.8 12.0M10.5 11.7L9.5 9.6M12.6 11.5L13.0 9.1M14.5 12.5L16.2 10.8"/><path d="M10.8 15a1.2 1.2 0 0 1 2.4 0"/><path d="M2 16.5c2.5-1.5 4.5 1.5 7 0s4.5 1.5 7 0 4 1.5 6 0"/><path d="M4 20.5c2-1.2 4 1.2 6 0s4 1.2 6 0"/>' },
   snow:    { label: 'Snow / ice', color: '#0284C7', path: '<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9"/><path d="M9.5 4.5 12 6l2.5-1.5M9.5 19.5 12 18l2.5 1.5"/>' },
   closed:  { label: 'Trail closed', color: '#9F1239', path: '<rect x="3" y="8" width="18" height="6" rx="1"/><path d="M8 8l-4 6M14 8l-4 6M20 8l-4 6"/><path d="M6 14v6M18 14v6"/>' },
   gate:    { label: 'Gate locked', color: '#475569', path: '<path d="M3 20V7M3 9h10M3 17h10M6.5 9v8M10 9v8"/><rect x="14" y="12" width="7" height="6" rx="1"/><path d="M15.5 12v-1.5a2 2 0 0 1 4 0V12"/>' },

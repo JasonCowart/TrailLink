@@ -785,10 +785,11 @@ function drawPins() {
     const old = pinMarkers.get(p.id);
     if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().dataset.key === key) continue; old.remove(); }
     const el = document.createElement('button');
-    el.className = `mpin ${p.kind}`;
+    const strobe = (p.kind === 'report' || p.kind === 'hazard') && (p.report ?? 'hazard') === 'hazard';
+    el.className = `mpin ${p.kind}${strobe ? ' strobe' : ''}`;
     el.dataset.key = key;
     el.setAttribute('aria-label', pinTitle(p));
-    el.innerHTML = `${pinIcon(p.kind, p.report, 34)}${p.photos?.length ? '<i class="hasphoto" aria-hidden="true"></i>' : ''}`;
+    el.innerHTML = `${strobe ? '<i class="flash" aria-hidden="true"></i>' : ''}${pinIcon(p.kind, p.report, 34)}${p.photos?.length ? '<i class="hasphoto" aria-hidden="true"></i>' : ''}`;
     el.addEventListener('click', ev => { ev.stopPropagation(); pinSheet(p.id); });
     pinMarkers.set(p.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map));
   }
@@ -864,10 +865,11 @@ function drawRemotePins() {
     const old = remoteMarkers.get(p.id);
     if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().dataset.key === key) continue; old.remove(); }
     const el = document.createElement('button');
-    el.className = `mpin ${p.kind} shared`;
+    const strobe = REPORT_KINDS.has(p.kind) && (p.report ?? 'hazard') === 'hazard';
+    el.className = `mpin ${p.kind} shared${strobe ? ' strobe' : ''}`;
     el.dataset.key = key;
     el.setAttribute('aria-label', `${sharedTitle(p)}, from ${p.by}`);
-    el.innerHTML = pinIcon(p.kind, p.report, 34);
+    el.innerHTML = `${strobe ? '<i class="flash" aria-hidden="true"></i>' : ''}${pinIcon(p.kind, p.report, 34)}`;
     el.addEventListener('click', ev => { ev.stopPropagation(); remotePinSheet(p.id); });
     remoteMarkers.set(p.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map));
   }

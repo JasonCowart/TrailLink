@@ -244,3 +244,13 @@ button.mpin .ricon { box-sizing: border-box; border: 3px solid #fff; box-shadow:
 button.mpin::after { content: ''; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); border: 6px solid transparent; border-bottom: 0; border-top: 8px solid #fff; }
 button.mpin.shared .ricon { border-style: dashed; }
 button.mpin .hasphoto { position: absolute; right: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 3px #1D4ED8; }
+/* Hazard pins strobe like an emergency light: a double red flash and a ring that pulses out, every 1.6 s. */
+button.mpin .flash { position: absolute; left: 5px; top: 5px; width: 34px; height: 34px; border-radius: 50%; pointer-events: none; z-index: -1; }
+button.mpin .flash::before, button.mpin .flash::after { content: ''; position: absolute; inset: 0; border-radius: 50%; }
+button.mpin .flash::before { background: radial-gradient(circle, rgba(255,60,40,.95) 0 35%, rgba(255,60,40,0) 70%); transform: scale(2.1); animation: strobe 1.6s infinite; }
+button.mpin .flash::after { border: 3px solid #EF4444; animation: strobe-ring 1.6s infinite; }
+button.mpin.strobe .ricon { animation: strobe-tile 1.6s infinite; }
+@keyframes strobe { 0%, 100% { opacity: 0; } 4% { opacity: 1; } 10% { opacity: 0; } 16% { opacity: 1; } 22% { opacity: 0; } }
+@keyframes strobe-ring { 0% { transform: scale(1); opacity: .9; } 60% { transform: scale(2.4); opacity: 0; } 100% { opacity: 0; } }
+@keyframes strobe-tile { 0%, 22%, 100% { filter: none; } 4%, 16% { filter: brightness(1.35); } }
+@media (prefers-reduced-motion: reduce) { button.mpin .flash { display: none; } button.mpin.strobe .ricon { animation: none; } }

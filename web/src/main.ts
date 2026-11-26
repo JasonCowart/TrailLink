@@ -175,18 +175,19 @@ function accountHtml(): string {
   }
   const si = state.signin;
   return `<h2>Share with other riders</h2>
-    <p class="quiet">Sign in to share your trails and ratings and see everyone else's. No password: we email you a 6-digit code.${pending ? ` ${pending} change${pending === 1 ? '' : 's'} on this phone will upload when you sign in.` : ''}</p>
+    <p class="quiet">Sign in to share your trails and ratings and see everyone else's. No password: we email you a sign-in link.${pending ? ` ${pending} change${pending === 1 ? '' : 's'} on this phone will upload when you sign in.` : ''}</p>
     ${si?.sent ? `<form id="codeform" class="form">
-        <label>Code from the email sent to ${esc(si.email)}<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required placeholder="123456"></label>
+        <p><b>Check your email (${esc(si.email)})</b> and tap the sign-in link. It opens TrailLink signed in.</p>
+        <label>Or, if the email shows a code, enter it here<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required placeholder="6-digit code"></label>
         ${si.error ? `<p class="quiet" style="color:var(--red)">${esc(si.error)}</p>` : ''}
         <div class="btns"><button type="button" data-act="signin-back">Back</button><button class="primary" ${si.busy ? 'disabled' : ''}>Sign in</button></div>
-        <p class="quiet">The email may also have a sign-in link. On iPhone, if you installed TrailLink to your home screen, use the code instead of the link.</p>
+        <p class="quiet">On iPhone, the link signs in TrailLink in Safari. The home-screen app signs in separately.</p>
       </form>`
     : `<form id="signinform" class="form">
         <label>Your name (shown as "created by")<input name="name" required maxlength="40" value="${esc(community.me()?.name ?? '')}" placeholder="e.g. Jason"></label>
         <label>Email<input name="email" type="email" autocomplete="email" required value="${esc(si?.email ?? '')}" placeholder="you@example.com"></label>
         ${si?.error ? `<p class="quiet" style="color:var(--red)">${esc(si.error)}</p>` : ''}
-        <div class="btns"><button class="primary" ${si?.busy ? 'disabled' : ''}>Email me a code</button></div>
+        <div class="btns"><button class="primary" ${si?.busy ? 'disabled' : ''}>Email me a sign-in link</button></div>
       </form>`}
     <p class="quiet">${community.mode === 'online' ? 'Connected: you can already see other riders\' ratings and trails.' : status}</p>`;
 }

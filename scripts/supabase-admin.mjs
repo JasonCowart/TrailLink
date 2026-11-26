@@ -67,7 +67,7 @@ try {
       disable_signup: false,
       mailer_otp_length: 6,
     };
-    const { SMTP_USER, SMTP_PASS } = process.env;
+    const SMTP_USER = process.env.SMTP_USER?.trim(), SMTP_PASS = process.env.SMTP_PASS?.replace(/\s/g, '');
     if (SMTP_USER && SMTP_PASS) {
       Object.assign(patch, {
         smtp_host: 'smtp.gmail.com', smtp_port: '465', smtp_user: SMTP_USER, smtp_pass: SMTP_PASS,

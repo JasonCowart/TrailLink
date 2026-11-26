@@ -26,6 +26,7 @@ const state = {
   admin: { riders: null as AdminRider[] | null, busy: false, error: '', invited: '' },
   rigMarks: store.get('rigMarks', true),
   panel: null as null | 'layers' | 'basemap' | 'legend',
+  openVehicles: new Set<string>(),
   trailMeta: null as null | { built: string; counts: Record<string, number> },
   follow: true,
   pos: null as null | { lat: number; lon: number; acc: number; alt?: number; speed?: number; heading?: number; t: number },
@@ -302,12 +303,14 @@ function garageHtml(): string {
   const vs = community.garage(), active = community.activeVehicle();
   return `<h2>Your garage</h2>
     <p class="quiet">Your setup changes how hard a trail feels. Ratings record the rig you rode, and trails show a forecast for yours.</p>
-    ${vs.map(v => { const sc = rigScore(v), on = v.id === active?.id; return `<div class="row vehicle${on ? ' on' : ''}">
-      <div class="grow"><b>${esc(vehicleTitle(v))}</b> ${on ? '<span class="tag">Riding</span>' : ''}
+    ${vs.map(v => { const sc = rigScore(v), on = v.id === active?.id, open = state.openVehicles.has(v.id); return `<div class="vehicle${on ? ' on' : ''}">
+      <button class="vhead" data-togglevehicle="${v.id}" aria-expanded="${open}"><b>${esc(v.nickname)}</b>${on ? ' <span class="tag">Riding</span>' : ''}<span class="chev" aria-hidden="true">${open ? '▴' : '▾'}</span></button>
+      ${open ? `<div class="vbody">
+        ${vehicleTitle(v) !== v.nickname ? `<div><b>${esc(vehicleTitle(v).slice(v.nickname.length + 3))}</b></div>` : ''}
         <div class="quiet">${esc(vehicleSummary(v))}</div>
-        <div class="quiet"><b>${rigClass(sc)}</b> · rig score ${sc}/10</div></div>
-      ${on || vs.length < 2 ? '' : `<button data-ridevehicle="${v.id}">Ride this</button>`}
-      <button data-editvehicle="${v.id}">Edit</button><button data-delvehicle="${v.id}" aria-label="Remove ${esc(v.nickname)}">✕</button></div>`; }).join('')}
+        <div class="quiet"><b>${rigClass(sc)}</b> · rig score ${sc}/10</div>
+        <div class="btns">${on || vs.length < 2 ? '' : `<button data-ridevehicle="${v.id}">Ride this</button>`}<button data-editvehicle="${v.id}">Edit</button><button data-delvehicle="${v.id}">Remove</button></div>
+      </div>` : ''}</div>`; }).join('')}
     <div class="btns"><button class="${vs.length ? '' : 'primary'}" data-act="addvehicle">Add a vehicle</button></div>`;
 }
 
@@ -717,6 +720,7 @@ function paneClick(e: Event) {
   if (b.dataset.colorby) { state.colorBy = b.dataset.colorby as ColorBy; store.set('colorBy', state.colorBy); applyColorBy(); renderPane(); }
   if (act === 'draw') startDrawing();
   if (act === 'addvehicle') vehicleForm();
+  if (b.dataset.togglevehicle) { const id = b.dataset.togglevehicle, o = state.openVehicles; if (o.has(id)) o.delete(id); else o.add(id); renderPane(); }
   if (b.dataset.editvehicle) vehicleForm(community.garage().find(v => v.id === b.dataset.editvehicle));
   if (b.dataset.ridevehicle) { community.setActive(b.dataset.ridevehicle); afterGarageChange(); toast(`Riding the ${community.activeVehicle()?.nickname}. Forecasts updated.`); }
   if (b.dataset.delvehicle) { const v = community.garage().find(x => x.id === b.dataset.delvehicle); if (v) sheet(`<h3>Remove ${esc(v.nickname)}?</h3><p>Ratings you gave in it keep its setup.</p><div class="btns"><button data-close>Keep it</button><button class="danger" data-act2="delvehicle" data-id="${v.id}">Remove</button></div>`); }

@@ -146,3 +146,8 @@ button.link { border: 0; background: none; padding: 0; min-height: 0; color: var
 .legend .mk { width: 34px; text-align: center; font-size: 16px; }
 .lgdot { width: 34px; display: inline-grid; place-items: center; } .lgdot::before { content: none; }
 .lgdot { height: 24px; width: 24px; margin: 0 5px; border-radius: 50%; background: #E8501A; color: #fff; font-size: 11px; font-weight: 700; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line); }
+.vehicle { border: 1px solid var(--line); border-radius: 14px; margin: 8px 0; overflow: hidden; }
+.vehicle.on { border-color: var(--pine); }
+.vhead { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 0; background: none; text-align: left; padding: 0 14px; min-height: 56px; font-size: 17px; }
+.vhead .chev { margin-left: auto; font-size: 18px; color: var(--quiet); }
+.vbody { padding: 0 14px 12px; border-top: 1px solid var(--line); padding-top: 10px; }

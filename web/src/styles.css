@@ -212,3 +212,4 @@ fieldset.colors legend { font-weight: 700; font-size: 14px; padding: 0; margin-b
 .swatch input[type="radio"]:checked + span, .swatch.custom:has(input[type="radio"]:checked) input[type="color"] { outline: 3px solid var(--ink); outline-offset: 2px; }
 .swatch.custom input[type="color"] { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; min-height: 0; background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); }
 .swatch.custom input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; } .swatch.custom input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 50%; }
+.codeinput { font-size: 26px !important; letter-spacing: 6px; text-align: center; font-weight: 700 !important; }

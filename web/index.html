@@ -60,12 +60,16 @@
   <div class="gate-card">
     <svg viewBox="0 0 512 512" class="gate-logo" aria-hidden="true"><rect width="512" height="512" rx="96" fill="#1F4D3A"/><g fill="none" stroke="#6E9C84" stroke-width="10"><ellipse cx="200" cy="210" rx="70" ry="48"/><ellipse cx="200" cy="214" rx="130" ry="92"/></g><path d="M60 440 C 150 400 190 330 250 300 S 360 250 452 120" fill="none" stroke="#fff" stroke-width="44" stroke-linecap="round"/><path d="M60 440 C 150 400 190 330 250 300 S 360 250 452 120" fill="none" stroke="#E8501A" stroke-width="26" stroke-linecap="round"/><circle cx="250" cy="300" r="40" fill="#E8501A" stroke="#fff" stroke-width="14"/></svg>
     <h1>TrailLink</h1>
-    <p>TrailLink is invite-only. Enter the email your invite was sent to and we'll email you a sign-in link.</p>
+    <p id="gateintro">TrailLink is invite-only. Enter the email your invite was sent to and we'll email you a 6-digit sign-in code.</p>
     <form id="gateform" class="form">
       <label>Email<input name="email" type="email" autocomplete="email" required placeholder="you@example.com"></label>
-      <div class="btns"><button class="primary">Email me a sign-in link</button></div>
-      <p id="gatemsg" class="quiet" role="status"></p>
+      <div class="btns"><button class="primary">Email me a code</button></div>
     </form>
+    <form id="gatecode" class="form" hidden>
+      <label>6-digit code from the email<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,8}" maxlength="8" required placeholder="123456" class="codeinput"></label>
+      <div class="btns"><button type="button" id="gateback">Different email</button><button class="primary">Sign in</button></div>
+    </form>
+    <p id="gatemsg" class="quiet" role="status"></p>
   </div>
 </div>
 <div id="sheet" class="overlay" hidden><div class="dialog" role="dialog" aria-modal="true" id="sheet-body"></div></div>

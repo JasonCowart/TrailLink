@@ -77,19 +77,17 @@ try {
     if (SMTP_USER && SMTP_PASS || cur.smtp_host) {
       // Email templates can only be changed with custom email set up.
       Object.assign(patch, {
-        mailer_subjects_magic_link: 'Your TrailLink sign-in code',
+        // Code only, no link: a link opens the phone's default browser (not the TrailLink the rider is using).
+        mailer_subjects_magic_link: 'Your TrailLink sign-in code: {{ .Token }}',
         mailer_templates_magic_link_content: `<h2>Sign in to TrailLink</h2>
-<p>Your sign-in code is:</p>
-<p style="font-size:28px;font-weight:bold;letter-spacing:4px">{{ .Token }}</p>
-<p>Type it into TrailLink, or tap this link on the phone or tablet you ride with:</p>
-<p><a href="{{ .ConfirmationURL }}">Sign in to TrailLink</a></p>
-<p>The code works once and expires in an hour. If you didn't ask for it, you can ignore this email.</p>`,
-        mailer_subjects_confirmation: 'Your TrailLink sign-in code',
+<p>Type this code into TrailLink:</p>
+<p style="font-size:32px;font-weight:bold;letter-spacing:6px">{{ .Token }}</p>
+<p>It works once and expires in an hour. If you didn't ask for it, you can ignore this email.</p>`,
+        mailer_subjects_confirmation: 'Your TrailLink sign-in code: {{ .Token }}',
         mailer_templates_confirmation_content: `<h2>Welcome to TrailLink</h2>
-<p>Your sign-in code is:</p>
-<p style="font-size:28px;font-weight:bold;letter-spacing:4px">{{ .Token }}</p>
-<p>Type it into TrailLink, or tap this link on the phone or tablet you ride with:</p>
-<p><a href="{{ .ConfirmationURL }}">Sign in to TrailLink</a></p>`,
+<p>Type this code into TrailLink to finish signing in:</p>
+<p style="font-size:32px;font-weight:bold;letter-spacing:6px">{{ .Token }}</p>
+<p>It works once and expires in an hour.</p>`,
       });
     }
     // Safety: only open sign-ups once the invite check exists in the database.

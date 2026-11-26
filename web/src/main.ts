@@ -238,19 +238,18 @@ function accountHtml(): string {
   }
   const si = state.signin;
   return `<h2>Share with other riders</h2>
-    <p class="quiet">Sign in to share your trails and ratings and see everyone else's. No password: we email you a sign-in link.${pending ? ` ${pending} change${pending === 1 ? '' : 's'} on this phone will upload when you sign in.` : ''}</p>
+    <p class="quiet">Sign in to share your trails and ratings and see everyone else's. No password: we email you a 6-digit code.${pending ? ` ${pending} change${pending === 1 ? '' : 's'} on this phone will upload when you sign in.` : ''}</p>
     ${si?.sent ? `<form id="codeform" class="form">
-        <p><b>Check your email (${esc(si.email)})</b> and tap the sign-in link. It opens TrailLink signed in.</p>
-        <label>Or, if the email shows a code, enter it here<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required placeholder="6-digit code"></label>
+        <p><b>We emailed a 6-digit code to ${esc(si.email)}.</b> Type it here. You don't need to tap anything in the email.</p>
+        <label>Code<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required placeholder="123456" class="codeinput"></label>
         ${si.error ? `<p class="quiet" style="color:var(--red)">${esc(si.error)}</p>` : ''}
         <div class="btns"><button type="button" data-act="signin-back">Back</button><button class="primary" ${si.busy ? 'disabled' : ''}>Sign in</button></div>
-        <p class="quiet">On iPhone, the link signs in TrailLink in Safari. The home-screen app signs in separately.</p>
       </form>`
     : `<form id="signinform" class="form">
         <label>Your name (shown as "created by")<input name="name" required maxlength="40" value="${esc(community.me()?.name ?? '')}" placeholder="e.g. Jason"></label>
         <label>Email<input name="email" type="email" autocomplete="email" required value="${esc(si?.email ?? '')}" placeholder="you@example.com"></label>
         ${si?.error ? `<p class="quiet" style="color:var(--red)">${esc(si.error)}</p>` : ''}
-        <div class="btns"><button class="primary" ${si?.busy ? 'disabled' : ''}>Email me a sign-in link</button></div>
+        <div class="btns"><button class="primary" ${si?.busy ? 'disabled' : ''}>Email me a code</button></div>
       </form>`}
     <p class="quiet">${community.mode === 'online' ? 'Connected: you can already see other riders\' ratings and trails.' : status}</p>`;
 }
@@ -1227,7 +1226,7 @@ $('#pane').addEventListener('submit', e => {
   }
   if (form.id === 'codeform' && state.signin) {
     const si = state.signin; si.busy = true; renderPane();
-    community.verifyCode(si.email, String(f.get('code') ?? '')).then(() => { state.signin = null; toast('Signed in. Your trails and ratings are now shared.'); renderPane(); })
+    community.verifyCode(si.email, String(f.get('code') ?? '').replace(/\D/g, '')).then(() => { state.signin = null; toast('Signed in. Your trails and ratings are now shared.'); renderPane(); })
       .catch((err: Error) => { state.signin = { ...si, busy: false, error: err.message }; renderPane(); });
   }
 });
@@ -1360,16 +1359,30 @@ function updateGate() { $('#gate').hidden = community.trusted; }
 const typingIn = (sel: string) => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && (a as HTMLInputElement).type !== 'checkbox' && !!a.closest(sel); };
 community.onChange = () => { updateGate(); refreshRiderTrails(); applyRigMarks(); drawRiders(); drawRemotePins(); drawPins(); refreshPopup(); if (['trails', 'garage', 'group', 'pins'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
 updateGate();
+// Sign-in by emailed code: typed into this TrailLink, so it never jumps to another browser.
+let gateEmail = '';
 $('#gateform').addEventListener('submit', e => {
   e.preventDefault();
-  const email = String(new FormData(e.target as HTMLFormElement).get('email') ?? '').trim();
+  gateEmail = String(new FormData(e.target as HTMLFormElement).get('email') ?? '').trim();
   const msg = $('#gatemsg');
   msg.textContent = 'Sending…';
-  community.sendCode(email, community.me()?.name ?? '').then(
-    () => { msg.textContent = `Check ${email} and tap the sign-in link. It opens TrailLink signed in.`; },
+  community.sendCode(gateEmail, community.me()?.name ?? '').then(
+    () => {
+      msg.textContent = `We emailed a 6-digit code to ${gateEmail}. Type it here (don't tap anything in the email).`;
+      $('#gateform').hidden = true; $('#gateintro').hidden = true; $('#gatecode').hidden = false;
+      $<HTMLInputElement>('#gatecode input').focus();
+    },
     (err: Error) => { msg.textContent = err.message; },
   );
 });
+$('#gatecode').addEventListener('submit', e => {
+  e.preventDefault();
+  const code = String(new FormData(e.target as HTMLFormElement).get('code') ?? '').replace(/\D/g, '');
+  const msg = $('#gatemsg'); msg.textContent = 'Signing in…';
+  community.verifyCode(gateEmail, code).then(() => { msg.textContent = ''; updateGate(); toast('Signed in. Welcome to TrailLink!'); },
+    () => { msg.textContent = "That code didn't work. Check it, or go back and get a new one."; });
+});
+$('#gateback').addEventListener('click', () => { $('#gateform').hidden = false; $('#gateintro').hidden = false; $('#gatecode').hidden = true; $('#gatemsg').textContent = ''; });
 setInterval(() => { if (document.visibilityState === 'visible') void community.sync(); }, 120_000);
 // Group positions: check for updates every 20 seconds while the app is open.
 setInterval(() => { if (document.visibilityState === 'visible' && community.group) void community.refreshGroup(); }, 20_000);

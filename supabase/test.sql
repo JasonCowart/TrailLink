@@ -48,4 +48,23 @@ do $$ begin
   exception when insufficient_privilege then null; end;
 end $$;
 reset role;
+
+-- Invite-only: a visitor who isn't signed in can't read anything.
+set role anon;
+select set_config('request.jwt.claim.sub', '', false);
+do $$ begin
+  begin perform 1 from ratings limit 1; raise exception 'anon could read ratings'; exception when insufficient_privilege then null; end;
+  begin perform 1 from trail_scores limit 1; raise exception 'anon could read trail_scores'; exception when insufficient_privilege then null; end;
+  begin perform 1 from rider_trails_public limit 1; raise exception 'anon could read rider trails'; exception when insufficient_privilege then null; end;
+  begin perform 1 from profiles limit 1; raise exception 'anon could read profiles'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+-- Signed-in riders still see community data through the views.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+do $$ begin
+  if (select count from trail_scores where tid = 'USFS:0402:30813') <> 2 then raise exception 'rider cannot see community score'; end if;
+  if not exists (select 1 from rider_trails_public where name = 'Test loop') then raise exception 'rider cannot see rider trails'; end if;
+end $$;
+reset role;
 select 'ALL DATABASE CHECKS PASSED' as result;

@@ -48,26 +48,31 @@ export class OnlineCommunity implements Community {
     this.session = data.session;
     this.sb.auth.onAuthStateChange((event, s) => {
       this.session = s;
-      if (event === 'SIGNED_IN') void this.afterSignIn();
+      if (event === 'SIGNED_IN') { write('traillink.everSignedIn', true); void this.afterSignIn(); }
       this.onChange();
     });
-    if (this.session) await this.afterSignIn(); else await this.sync();
+    if (this.session) { write('traillink.everSignedIn', true); await this.afterSignIn(); } else this.onChange();
   }
 
   // ---------------------------------------------------------------- sign-in (emailed 6-digit code or link; no passwords)
   get signedIn() { return !!this.session; }
   get email() { return this.session?.user.email ?? null; }
   async sendCode(email: string, name: string) {
-    this.setName(name);
+    if (name.trim()) this.setName(name);
     const redirect = `${location.origin}${location.pathname}`;
-    const { error } = await this.sb.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect, shouldCreateUser: true } });
-    if (error) throw new Error(error.message);
+    // Invite-only: never create accounts from the app. Riders exist only if the owner invited them.
+    const { error } = await this.sb.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect, shouldCreateUser: false } });
+    if (error) throw new Error(/signup|not allowed|not found|otp_disabled/i.test(`${error.message} ${error.code ?? ''}`)
+      ? "That email hasn't been invited to TrailLink. Ask your ride leader for an invite."
+      : error.message);
   }
   async verifyCode(email: string, code: string) {
     const { error } = await this.sb.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' });
     if (error) throw new Error(error.message);
   }
-  async signOut() { await this.sb.auth.signOut(); this.session = null; this.onChange(); }
+  async signOut() { await this.sb.auth.signOut(); this.session = null; write('traillink.everSignedIn', false); this.onChange(); }
+  /** True once this phone has signed in, so the app keeps opening on the trail even if the session can't refresh offline. */
+  get trusted() { return this.signedIn || read('traillink.everSignedIn', false); }
 
   private async afterSignIn() {
     if (!this.session) return;
@@ -158,6 +163,8 @@ export class OnlineCommunity implements Community {
   }
   private async doSync() {
     if (!navigator.onLine) { this.syncState = 'offline'; this.onChange(); return; }
+    // Invite-only: community data is readable only by signed-in riders.
+    if (!this.session) { this.syncState = 'offline'; this.onChange(); return; }
     this.syncState = 'syncing';
     try {
       if (this.session) {

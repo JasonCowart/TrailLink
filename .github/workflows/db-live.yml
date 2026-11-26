@@ -18,7 +18,8 @@ jobs:
           for path in "trail_scores?select=tid&limit=1" "rider_trails_public?select=id&limit=1" "ratings?select=tid&limit=1" "profiles?select=id&limit=1"; do
             code=$(curl -s -o /tmp/out.json -w '%{http_code}' "$URL/rest/v1/$path" -H "apikey: $KEY")
             echo "$path -> HTTP $code $(head -c 300 /tmp/out.json)"
-            [ "$code" = 200 ] || fail=1
+            # Invite-only: signed-out reads must be refused (401/403). Before 003-invite-only.sql they return 200.
+            case "$code" in 401|403) echo "  signed-out read refused (invite-only)";; 200) echo "  ::warning::signed-out visitors can read this";; *) fail=1;; esac
           done
           # Anonymous writes must be refused by row-level security.
           code=$(curl -s -o /tmp/out.json -w '%{http_code}' -X POST "$URL/rest/v1/ratings" -H "apikey: $KEY" -H 'content-type: application/json' -d '{"tid":"TEST","difficulty":5}')

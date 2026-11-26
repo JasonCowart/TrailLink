@@ -620,8 +620,21 @@ if ('serviceWorker' in navigator) {
 $('#btn-center').classList.add('active');
 // Test hook: open the app with #debug to reach the map from automated browser tests.
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state } });
-community.onChange = () => { refreshRiderTrails(); refreshPopup(); if (state.tab === 'trails' && !state.detail) renderPane(); };
-void community.init();
+// Invite-only: until this phone has signed in once, show the sign-in screen instead of the app.
+function updateGate() { $('#gate').hidden = community.trusted; }
+community.onChange = () => { updateGate(); refreshRiderTrails(); refreshPopup(); if (state.tab === 'trails' && !state.detail) renderPane(); };
+updateGate();
+void community.init().then(updateGate, updateGate);
+$('#gateform').addEventListener('submit', e => {
+  e.preventDefault();
+  const email = String(new FormData(e.target as HTMLFormElement).get('email') ?? '').trim();
+  const msg = $('#gatemsg');
+  msg.textContent = 'Sending…';
+  community.sendCode(email, community.me()?.name ?? '').then(
+    () => { msg.textContent = `Check ${email} and tap the sign-in link. It opens TrailLink signed in.`; },
+    (err: Error) => { msg.textContent = err.message; },
+  );
+});
 setInterval(() => { if (document.visibilityState === 'visible') void community.sync(); }, 120_000);
 window.addEventListener('online', () => { void community.sync(); });
 render();

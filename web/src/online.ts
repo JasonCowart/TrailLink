@@ -5,6 +5,7 @@ import { createClient, type Session, type SupabaseClient } from '@supabase/supab
 import { LocalCommunity, type Community, type CommunityScore, type RiderTrail } from './community.ts';
 import { SUPABASE_KEY, SUPABASE_URL } from './config.ts';
 import { effectiveSlope, rigScore, type Vehicle } from './garage.ts';
+import type { BadgeTrail } from './badges.ts';
 
 type Op =
   | { k: 'rate'; tid: string; n: number; v?: string | null; s?: number | null }
@@ -16,7 +17,8 @@ type Op =
   | { k: 'confirm'; id: string }
   | { k: 'pin'; p: PinUpload }
   | { k: 'unpin'; id: string }
-  | { k: 'vote'; id: string; v: 'there' | 'cleared' };
+  | { k: 'vote'; id: string; v: 'there' | 'cleared' }
+  | { k: 'award'; badge: string; at: string; detail?: Record<string, unknown> };
 
 interface RemoteTrailRow {
   id: string; name: string; difficulty: number; vehicles: RiderTrail['vehicles']; notes: string | null;
@@ -303,6 +305,54 @@ export class OnlineCommunity implements Community {
     if (!votes.error) { this.myVotes = Object.fromEntries((votes.data as { pin_id: string; vote: 'there' | 'cleared' }[]).map(v => [v.pin_id, v.vote])); write('traillink.pinVotes', this.myVotes); }
   }
 
+  // ---------------------------------------------------------------- badges (badge trails from the admin; awards checked on the phone)
+  badgeTrails: BadgeTrail[] = read('traillink.badgeTrails', []);
+  awards: Record<string, { at: string; detail?: Record<string, unknown> }> = read('traillink.awards', {});
+  hasBadge(key: string) { return !!this.awards[key]; }
+  /** Record a badge on this phone now; it uploads when signed in with signal. Returns false if already earned. */
+  award(key: string, detail?: Record<string, unknown>) {
+    if (this.awards[key]) return false;
+    const at = new Date().toISOString();
+    this.awards[key] = { at, detail }; write('traillink.awards', this.awards);
+    this.queue({ k: 'award', badge: key, at, detail });
+    return true;
+  }
+  async fetchBadges() {
+    if (!navigator.onLine || !this.session) return;
+    const [trails, mine] = await Promise.all([
+      this.sb.from('badge_trails').select('id,name,description,tids,geom,difficulty,color,icon,min_coverage,active').eq('active', true).limit(500),
+      this.sb.from('badge_awards').select('badge,earned_at,detail').eq('rider_id', this.session.user.id),
+    ]);
+    if (!trails.error) {
+      this.badgeTrails = (trails.data as Record<string, unknown>[]).map(r => ({
+        id: String(r.id), name: String(r.name), description: (r.description as string) ?? undefined, tids: (r.tids as string[]) ?? [],
+        geom: r.geom as BadgeTrail['geom'], difficulty: (r.difficulty as number) ?? undefined, color: String(r.color), icon: r.icon as BadgeTrail['icon'],
+        minCoverage: Number(r.min_coverage), active: !!r.active,
+      }));
+      write('traillink.badgeTrails', this.badgeTrails);
+    }
+    if (!mine.error) {
+      // Badges earned on another phone show up here too; ones earned offline on this phone stay until they upload.
+      for (const a of mine.data as { badge: string; earned_at: string; detail: Record<string, unknown> | null }[])
+        if (!this.awards[a.badge]) this.awards[a.badge] = { at: a.earned_at, detail: a.detail ?? undefined };
+      write('traillink.awards', this.awards);
+    }
+  }
+  /** Admin: add or change a badge trail (needs signal). */
+  async saveBadgeTrail(t: Omit<BadgeTrail, 'id' | 'active'> & { id?: string }) {
+    if (!navigator.onLine) throw new Error('No signal. Adding a badge trail needs a connection.');
+    const row = { name: t.name, description: t.description ?? null, tids: t.tids, geom: t.geom, difficulty: t.difficulty ?? null, color: t.color, icon: t.icon, min_coverage: t.minCoverage, active: true };
+    const res = t.id ? await this.sb.from('badge_trails').update(row).eq('id', t.id) : await this.sb.from('badge_trails').insert(row);
+    if (res.error) throw new Error(res.error.message);
+    await this.fetchBadges(); this.onChange();
+  }
+  async removeBadgeTrail(id: string) {
+    if (!navigator.onLine) throw new Error('No signal. Try again when you have service.');
+    const res = await this.sb.from('badge_trails').update({ active: false }).eq('id', id);
+    if (res.error) throw new Error(res.error.message);
+    this.badgeTrails = this.badgeTrails.filter(b => b.id !== id); write('traillink.badgeTrails', this.badgeTrails); this.onChange();
+  }
+
   // ---------------------------------------------------------------- admin tools (need signal; the database checks the rider is an admin)
   private async rpc<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
     if (!navigator.onLine) throw new Error('No signal. Managing riders needs a connection.');
@@ -320,7 +370,7 @@ export class OnlineCommunity implements Community {
     // A newer change to the same thing replaces the older one.
     const key = (o: Op) => (o.k === 'rate' || o.k === 'unrate' ? `r:${o.tid}` : o.k === 'trail' ? `t:${o.t.id}` : o.k === 'deltrail' ? `t:${o.id}`
       : o.k === 'vehicle' ? `v:${o.v.id}` : o.k === 'delvehicle' ? `v:${o.id}`
-      : o.k === 'pin' ? `p:${o.p.id}` : o.k === 'unpin' ? `p:${o.id}` : o.k === 'vote' ? `pv:${o.id}` : `c:${o.id}`);
+      : o.k === 'award' ? `a:${o.badge}` : o.k === 'pin' ? `p:${o.p.id}` : o.k === 'unpin' ? `p:${o.id}` : o.k === 'vote' ? `pv:${o.id}` : `c:${o.id}`);
     this.outbox = [...this.outbox.filter(o => key(o) !== key(op)), op];
     write('traillink.outbox', this.outbox);
     void this.sync();
@@ -348,6 +398,7 @@ export class OnlineCommunity implements Community {
           lat: op.p.lat, lon: op.p.lon, created_at: op.p.createdAt, updated_at: new Date().toISOString(),
         }, { onConflict: 'id' })
       : op.k === 'unpin' ? await this.sb.from('shared_pins').delete().eq('id', op.id)
+      : op.k === 'award' ? await this.sb.from('badge_awards').upsert({ rider_id: uid, badge: op.badge, earned_at: op.at, detail: op.detail ?? null }, { onConflict: 'rider_id,badge', ignoreDuplicates: true })
       : op.k === 'vote' ? await this.sb.from('hazard_votes').upsert({ pin_id: op.id, rider_id: uid, vote: op.v, voted_at: new Date().toISOString() }, { onConflict: 'pin_id,rider_id' })
       : await this.sb.from('trail_confirmations').insert({ trail_id: op.id });
     // The vehicle was deleted (or never uploaded): keep the rating and its rig score without the link.
@@ -408,6 +459,7 @@ export class OnlineCommunity implements Community {
       if (!model.error && model.data) { this.rigModel = { pairs: model.data.pairs, slope: model.data.slope == null ? null : Number(model.data.slope) }; write('traillink.rigModel', this.rigModel); }
       if (!mine.error) this.mergeVehicles(mine.data as Record<string, unknown>[]);
       await this.fetchSharedPins();
+      await this.fetchBadges();
       this.remote = (trails.data as RemoteTrailRow[]).map(r => ({
         id: r.id, name: r.name, difficulty: r.difficulty, vehicles: r.vehicles, notes: r.notes ?? undefined,
         createdBy: r.created_by, createdById: r.created_by_id, createdAt: r.created_at, coords: r.geometry.coordinates,

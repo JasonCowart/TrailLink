@@ -12,10 +12,11 @@ import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from './photos.ts';
 import { REPORTS, REPORT_TYPES, type ReportType } from './reports.ts';
+import { BADGE_COLORS as BADGE_TRAIL_COLORS, BADGE_ICONS, MILESTONES, badgeSvg, bbox as badgeBbox, coverage, earnedOnRide, rodeIn, type BadgeIcon, type BadgeTrail, type RiderStats } from './badges.ts';
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
 
 // ---------------------------------------------------------------- state
-type Tab = 'ride' | 'trails' | 'garage' | 'pins' | 'group';
+type Tab = 'ride' | 'trails' | 'garage' | 'badges' | 'pins' | 'group';
 const state = {
   tab: 'ride' as Tab,
   base: store.get<BaseMapId>('base', 'topo'),
@@ -115,9 +116,9 @@ function ratingInfo(tid?: string): RatingInfo {
 function popupHtml(p: Record<string, string>) {
   if (p.src === 'RIDER') {
     const t = community.trails().find(x => `RIDER:${x.id}` === p.tid);
-    if (t) return riderTrailHtml(t);
+    if (t) return badgeRowHtml(p.tid) + riderTrailHtml(t);
   }
-  return trailPopupHtml(p, ratingInfo(p.tid));
+  return badgeRowHtml(p.tid) + trailPopupHtml(p, ratingInfo(p.tid));
 }
 // Phones: details go in the bottom panel (more room); tablets and desktops: a popup on the map.
 const useSheetDetails = () => window.matchMedia('(max-width: 899px), (orientation: portrait)').matches;
@@ -170,7 +171,9 @@ map.on('click', e => {
 });
 // Buttons inside the popup.
 for (const el of ['#map', '#pane']) $(el).addEventListener('click', e => {
-  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-rate], button[data-closedetail], button[data-confirm], button[data-act="garage"]'); if (!b) return;
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-rate], button[data-closedetail], button[data-confirm], button[data-act="garage"], button[data-makebadge], button[data-badgeinfo]'); if (!b) return;
+  if (b.dataset.makebadge) { badgeTrailForm(b.dataset.makebadge); return; }
+  if (b.dataset.badgeinfo) { badgeSheet(b.dataset.badgeinfo); return; }
   if (b.dataset.act === 'garage') { popup.remove(); if (state.detail) { state.detail = false; tapMarker.remove(); } state.tab = 'garage'; setPanel(true); render(); $('#pane').scrollTop = 0; return; }
   if (b.dataset.rate) openRateSheet(b.dataset.rate);
   if (b.dataset.confirm) { void community.confirmTrail(b.dataset.confirm).then(() => { refreshPopup(); toast('Thanks! Three confirmations make a trail verified.'); }); }
@@ -223,6 +226,7 @@ async function vote(tid: string, n: number | null) {
   closeSheet(); refreshPopup();
   const rode = community.activeVehicle();
   toast(n == null ? 'Rating removed.' : `Rated ${n} (${levelOf(n).band})${rode ? ` in your ${rode.nickname}` : ''}.${state.colorBy === 'access' ? ' Use the layers button to color trails by difficulty.' : ''}`);
+  if (n != null) checkBadges();
 }
 
 // ---------------------------------------------------------------- rider account (share trails and ratings)
@@ -468,6 +472,130 @@ function groupSubmit(form: HTMLFormElement): boolean {
     (err: Error) => { state.groupError = err.message; })
     .finally(() => { state.groupBusy = false; renderPane(); });
   return true;
+}
+
+// ---------------------------------------------------------------- trail badges: the badge wall
+function riderStats(): RiderStats {
+  const rides = state.tracks.filter(t => t.endedAt && t.points.length > 1);
+  let miles = 0, climbFt = 0;
+  for (const r of rides) { const st = stats(r.points); miles += st.miles; climbFt += st.gainFt; }
+  return {
+    rides: rides.length, miles, climbFt,
+    maxRated: Math.max(0, ...community.myRatings().values()),
+    trailsAdded: community.trails().filter(t => community.isMine(t)).length,
+    reports: state.pins.filter(p => p.kind === 'report' || p.kind === 'hazard').length,
+    clears: Object.values(community.myVotes).filter(v => v === 'cleared').length,
+    groupRides: store.get('groupRides', 0),
+    inColorado: rodeIn(rides, 'CO'), inUtah: rodeIn(rides, 'UT'),
+    badgeTrails: Object.keys(community.awards).filter(k => k.startsWith('trail:')).length,
+  };
+}
+/** Award anything newly earned: badge trails covered by these rides, and milestones. Shows a celebration. */
+function checkBadges(rides: Track[] = [], quietIfNone = false): number {
+  const fresh: { key: string; name: string; icon: BadgeIcon; color: string }[] = [];
+  for (const ride of rides) for (const { trail, coverage: c } of earnedOnRide(community.badgeTrails, ride)) {
+    if (community.award(`trail:${trail.id}`, { coverage: Math.round(c * 100) / 100, ride: ride.name })) fresh.push({ key: `trail:${trail.id}`, name: trail.name, icon: trail.icon, color: trail.color });
+  }
+  const st = riderStats();
+  for (const m of MILESTONES) if (m.value(st) >= m.goal && community.award(`m:${m.key}`)) fresh.push({ key: `m:${m.key}`, name: m.name, icon: m.icon, color: m.color });
+  if (fresh.length) {
+    sheet(`<div class="earned"><h3>Badge${fresh.length > 1 ? 's' : ''} earned!</h3>
+      <div class="earnedrow">${fresh.slice(0, 6).map(f => `<div>${badgeSvg(f.icon, f.color, 110, false, f.name)}<b>${esc(f.name)}</b></div>`).join('')}</div>
+      ${fresh.length > 6 ? `<p class="quiet">…and ${fresh.length - 6} more.</p>` : ''}
+      <div class="btns"><button data-close>Nice!</button><button class="primary" data-act2="seebadges">See my badges</button></div></div>`);
+    if (state.tab === 'badges') renderPane();
+  } else if (quietIfNone) return 0;
+  return fresh.length;
+}
+function badgeTile(key: string, name: string, icon: BadgeIcon, color: string, sub: string, progress?: number) {
+  const got = community.hasBadge(key);
+  return `<button class="badge${got ? ' got' : ''}" data-badge="${esc(key)}" aria-label="${esc(name)}${got ? ', earned' : ', not earned yet'}">
+    ${badgeSvg(icon, color, 76, !got)}<b>${esc(name)}</b><span>${sub}</span>
+    ${!got && progress != null ? `<i class="prog"><i style="width:${Math.min(100, Math.round(progress * 100))}%"></i></i>` : ''}</button>`;
+}
+function badgesHtml(): string {
+  const st = riderStats(), trails = community.badgeTrails;
+  const earned = Object.keys(community.awards).length, total = trails.length + MILESTONES.length;
+  const fmt = (n: number) => Math.floor(n).toLocaleString();
+  const trailTiles = trails.map(t => {
+    const a = community.awards[`trail:${t.id}`];
+    return badgeTile(`trail:${t.id}`, t.name, t.icon, t.color, a ? `Earned ${new Date(a.at).toLocaleDateString()}` : t.difficulty ? `${levelOf(t.difficulty).band} · ${t.difficulty}` : 'Badge trail');
+  }).join('');
+  const msTiles = MILESTONES.map(m => {
+    const v = m.value(st), a = community.awards[`m:${m.key}`];
+    const sub = a ? `Earned ${new Date(a.at).toLocaleDateString()}` : m.goal > 1 && m.unit ? `${fmt(v)} / ${fmt(m.goal)} ${m.unit}` : m.how;
+    return badgeTile(`m:${m.key}`, m.name, m.icon, m.color, sub, m.goal > 1 && m.unit ? v / m.goal : undefined);
+  }).join('');
+  return `<h2>Badge wall</h2>
+    <p class="quiet"><b>${earned} of ${total}</b> badges earned. Ride a badge trail with recording on: cover most of it and the badge is yours. Works with no signal.</p>
+    <h2>Badge trails</h2>
+    ${trails.length ? `<div class="badgegrid">${trailTiles}</div>` : `<p class="quiet">${community.signedIn ? 'No badge trails yet.' : 'Sign in (Trails tab) to see the badge trails.'}</p>`}
+    ${community.isAdmin ? '<p class="quiet">Admin: to add a badge trail, tap a trail on the map, then <b>Make this a badge trail</b>.</p>' : ''}
+    <h2>Milestones</h2>
+    <div class="badgegrid">${msTiles}</div>
+    <div class="btns"><button data-act="checkrides">Check my recorded rides</button></div>
+    <p class="quiet">Printable badges for your rig are coming later.</p>`;
+}
+function badgeSheet(key: string) {
+  const a = community.awards[key];
+  const earned = a ? `<p class="quiet">Earned ${new Date(a.at).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}${a.detail?.ride ? ` on ${esc(String(a.detail.ride))}` : ''}${a.detail?.coverage ? ` · rode ${Math.round(Number(a.detail.coverage) * 100)}% of it` : ''}</p>` : '';
+  if (key.startsWith('trail:')) {
+    const t = community.badgeTrails.find(x => `trail:${x.id}` === key); if (!t) return;
+    // Best effort on rides already recorded, so riders know how close they got.
+    const best = Math.max(0, ...state.tracks.filter(r => r.points.length > 1).map(r => coverage(t, r.points)));
+    sheet(`<div class="earned">${badgeSvg(t.icon, t.color, 140, !a, t.name)}<h3>${esc(t.name)}</h3>
+      ${t.difficulty ? `<p><span class="dchip" style="--c:${levelOf(t.difficulty).color}">${t.difficulty} · ${levelOf(t.difficulty).band}</span></p>` : ''}
+      ${t.description ? `<p>${esc(t.description)}</p>` : ''}
+      ${earned || `<p class="quiet">Not earned yet. Record a ride that covers at least ${t.minCoverage}% of the trail.${best > 0.02 ? ` Your best so far: ${Math.round(best * 100)}%.` : ''}</p>`}
+      <div class="btns"><button data-act2="badgemap" data-id="${t.id}">Show on map</button>${community.isAdmin ? `<button data-act2="badgeedit" data-id="${t.id}">Edit</button><button class="danger" data-act2="badgeremove" data-id="${t.id}">Remove</button>` : ''}<button class="primary" data-close>Done</button></div></div>`);
+    return;
+  }
+  const m = MILESTONES.find(x => `m:${x.key}` === key); if (!m) return;
+  const v = m.value(riderStats());
+  sheet(`<div class="earned">${badgeSvg(m.icon, m.color, 140, !a, m.name)}<h3>${esc(m.name)}</h3><p>${esc(m.how)}.</p>
+    ${earned || (m.goal > 1 && m.unit ? `<p class="quiet">So far: ${Math.floor(v).toLocaleString()} of ${m.goal.toLocaleString()} ${m.unit}.</p>` : '<p class="quiet">Not earned yet.</p>')}
+    <div class="btns"><button class="primary" data-close>Done</button></div></div>`);
+}
+/** In trail details: is this part of a badge trail? */
+function badgeRowHtml(tid?: string): string {
+  if (!tid) return '';
+  const t = community.badgeTrails.find(b => b.tids.includes(tid));
+  if (t) {
+    const got = community.hasBadge(`trail:${t.id}`);
+    return `<button class="badgerow" data-badgeinfo="trail:${t.id}">${badgeSvg(t.icon, t.color, 34, !got)}<span><b>Badge trail: ${esc(t.name)}</b><br><span class="quiet">${got ? 'You earned this badge' : 'Ride it with recording on to earn the badge'}</span></span></button>`;
+  }
+  return community.isAdmin ? `<button class="small" data-makebadge="${esc(tid)}">🏅 Make this a badge trail</button>` : '';
+}
+/** Admin: turn the tapped trail into a badge trail (its shape comes from the map data on screen). */
+let badgeDraft: { id?: string; tids: string[]; geom: BadgeTrail['geom'] } | null = null;
+function trailShape(tid: string): BadgeTrail['geom'] | null {
+  if (tid.startsWith('RIDER:')) { const t = community.trails().find(x => `RIDER:${x.id}` === tid); return t ? { type: 'MultiLineString', coordinates: [t.coords] } : null; }
+  const lines: [number, number][][] = [];
+  for (const f of map.querySourceFeatures('trails', { sourceLayer: 'trails', filter: ['==', ['get', 'tid'], tid] })) {
+    const g = f.geometry;
+    if (g.type === 'LineString') lines.push(g.coordinates as [number, number][]);
+    else if (g.type === 'MultiLineString') lines.push(...(g.coordinates as [number, number][][]));
+  }
+  return lines.length ? { type: 'MultiLineString', coordinates: lines } : null;
+}
+function badgeTrailForm(tid: string, existing?: BadgeTrail) {
+  const geom = existing ? existing.geom : trailShape(tid);
+  if (!geom) { toast('Zoom in on the trail so the whole route is on screen, then try again.'); return; }
+  badgeDraft = { id: existing?.id, tids: existing?.tids ?? [tid], geom };
+  const name = existing?.name ?? popupProps?.name ?? community.trails().find(x => `RIDER:${x.id}` === tid)?.name ?? '';
+  const diff = existing?.difficulty ?? Math.round(community.scores().get(tid)?.avg ?? 0);
+  const color = existing?.color ?? BADGE_TRAIL_COLORS[0], icon = existing?.icon ?? 'peak';
+  sheet(`<h3>${existing ? 'Edit badge trail' : 'New badge trail'}</h3>
+    <form id="badgeform" class="form">
+      <label>Badge name<input name="name" required maxlength="60" value="${esc(name)}" placeholder="e.g. Black Bear Pass"></label>
+      <label>Short description<textarea name="description" rows="2" maxlength="300" placeholder="What makes this trail worth a badge">${esc(existing?.description ?? '')}</textarea></label>
+      <label>Difficulty<select name="difficulty"><option value="">Not set</option>${LEVELS.map(l => `<option value="${l.n}" ${l.n === diff ? 'selected' : ''}>${l.n} · ${l.band}</option>`).join('')}</select></label>
+      <fieldset class="colors"><legend>Badge color</legend>${BADGE_TRAIL_COLORS.map(c => `<label class="swatch" style="--c:${c}"><input type="radio" name="color" value="${c}" ${c === color ? 'checked' : ''}><span></span></label>`).join('')}</fieldset>
+      <fieldset class="colors"><legend>Badge icon</legend>${BADGE_ICONS.map(i => `<label class="iconpick"><input type="radio" name="icon" value="${i}" ${i === icon ? 'checked' : ''}>${badgeSvg(i, '#4F564C', 44)}</label>`).join('')}</fieldset>
+      <label>Must ride at least<select name="min">${[60, 70, 75, 80, 90].map(n => `<option value="${n}" ${n === (existing?.minCoverage ?? 75) ? 'selected' : ''}>${n}% of the trail</option>`).join('')}</select></label>
+      <p class="quiet">${geom.coordinates.length} map piece${geom.coordinates.length === 1 ? '' : 's'} · about ${(geom.coordinates.reduce((m, l) => m + lengthMiles(l), 0)).toFixed(1)} mi. If the trail continues off screen, zoom out so all of it is visible and open this again.</p>
+      <div class="btns"><button type="button" data-close>Cancel</button><button class="primary">${existing ? 'Save' : 'Create badge'}</button></div>
+    </form>`);
 }
 
 // ---------------------------------------------------------------- admin: approve and manage riders
@@ -797,6 +925,7 @@ function openReport() {
 /** After a report: quick follow-ups (photo, move) without getting in the way. */
 function reported(pin: Pin | null) {
   if (!pin) return;
+  if (checkBadges()) return;
   sheet(`<h3>${esc(pinTitle(pin, true))} pinned</h3>
     <p class="quiet">Add a photo or a note, or move the pin if it's not quite right.</p>
     <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, '📷 Add photo')}<button data-act2="pinnote" data-id="${pin.id}">Add note</button></div>
@@ -931,7 +1060,9 @@ function stopRecording() {
   if (!state.recording) return;
   state.recording.endedAt = Date.now();
   if (state.recording.points.length < 2) state.tracks = state.tracks.filter(t => t !== state.recording);
+  const ride = state.recording;
   state.recording = null; persistTracks(); refreshTrack(); render();
+  if (ride.points.length > 1) checkBadges([ride]);
 }
 function downloadGpx(id: string) {
   const t = state.tracks.find(x => x.id === id); if (!t) return;
@@ -1028,6 +1159,7 @@ const views: Record<Tab, () => string> = {
       <p class="quiet">${rated ? `You've rated ${rated} trail${rated === 1 ? '' : 's'}.` : 'Tap any trail on the map and choose "Rate difficulty".'}</p>
       ${accountHtml()}`;
   },
+  badges() { return badgesHtml(); },
   garage() {
     return `${garageHtml()}
       <h2>How the forecast works</h2>
@@ -1142,6 +1274,8 @@ function paneClick(e: Event) {
   if (b.dataset.colorby) { state.colorBy = b.dataset.colorby as ColorBy; store.set('colorBy', state.colorBy); applyColorBy(); renderPane(); }
   if (act === 'draw') startDrawing();
   if (act === 'addvehicle') vehicleForm();
+  if (b.dataset.badge) badgeSheet(b.dataset.badge);
+  if (act === 'checkrides') { const got = checkBadges(state.tracks.filter(t => t.endedAt && t.points.length > 1), true); if (!got) toast('Checked your rides. No new badges yet.'); }
   if (act === 'groupshare' && community.group) void shareGroupCode();
   if (act === 'groupleave' && community.group) sheet(`<h3>Leave ${esc(community.group.name)}?</h3><p>The group won't see you anymore. You can rejoin with the code.</p><div class="btns"><button data-close>Stay</button><button class="danger" data-act2="leavegroup">Leave</button></div>`);
   if (act === 'grouprefresh') void community.refreshGroup();
@@ -1197,7 +1331,7 @@ function paneChange(e: Event) {
   }
   if (t.dataset.set === 'sharing') {
     const on = t.checked; state.groupBusy = true; state.groupError = '';
-    community.setSharing(on).then(() => { toast(on ? 'Sharing your location with the group.' : 'Stopped sharing. Your location was removed from the group.'); lastShare = 0; maybeSharePosition(); },
+    community.setSharing(on).then(() => { toast(on ? 'Sharing your location with the group.' : 'Stopped sharing. Your location was removed from the group.'); lastShare = 0; maybeSharePosition(); if (on) { store.set('groupRides', store.get('groupRides', 0) + 1); checkBadges(); } },
       (err: Error) => { state.groupError = err.message; t.checked = !on; }).finally(() => { state.groupBusy = false; renderPane(); });
     return;
   }
@@ -1242,6 +1376,13 @@ $('#sheet').addEventListener('submit', e => {
   e.preventDefault();
   if (groupSubmit(e.target as HTMLFormElement)) return;
   if ((e.target as HTMLElement).id === 'renameform') { community.setName(String(new FormData(e.target as HTMLFormElement).get('name') ?? '')); closeSheet(); void community.sync(); renderPane(); }
+  if ((e.target as HTMLElement).id === 'badgeform' && badgeDraft) {
+    const f = new FormData(e.target as HTMLFormElement), d = badgeDraft;
+    void community.saveBadgeTrail({ id: d.id, name: String(f.get('name') ?? '').trim(), description: String(f.get('description') ?? '').trim() || undefined, tids: d.tids, geom: d.geom,
+      difficulty: Number(f.get('difficulty')) || undefined, color: String(f.get('color') ?? BADGE_TRAIL_COLORS[0]), icon: String(f.get('icon') ?? 'peak') as BadgeIcon, minCoverage: Number(f.get('min')) || 75 })
+      .then(() => { badgeDraft = null; closeSheet(); refreshPopup(); toast('Badge trail saved. Riders earn it by riding it.'); }, (err: Error) => toast(err.message));
+    return;
+  }
   if ((e.target as HTMLElement).id === 'vehicleform') {
     const f = new FormData(e.target as HTMLFormElement);
     const v = community.saveVehicle(vehicleFromForm(f));
@@ -1259,7 +1400,7 @@ $('#sheet').addEventListener('submit', e => {
     void community.addTrail({
       name: String(f.get('name')).trim(), difficulty: Number(f.get('difficulty')), vehicles: f.get('vehicles') as VehicleFit,
       notes: String(f.get('notes') ?? '').trim() || undefined, coords: pendingCoords,
-    }).then(t => { pendingCoords = null; closeSheet(); refreshRiderTrails(); renderPane(); toast(`Saved "${t.name}".`); });
+    }).then(t => { pendingCoords = null; closeSheet(); refreshRiderTrails(); renderPane(); toast(`Saved "${t.name}".`); checkBadges(); });
   }
 });
 $('#sheet').addEventListener('click', e => {
@@ -1267,9 +1408,14 @@ $('#sheet').addEventListener('click', e => {
   if (b.dataset.unvote) { void vote(b.dataset.unvote, null); return; }
   if (b.dataset.vote && b.dataset.tid) { void vote(b.dataset.tid, Number(b.dataset.vote)); return; }
   if (b.dataset.act2 === 'deltrail' && b.dataset.id) { void community.deleteTrail(b.dataset.id).then(() => { closeSheet(); popup.remove(); refreshRiderTrails(); renderPane(); }); return; }
+  if (b.dataset.act2 === 'seebadges') { closeSheet(); state.tab = 'badges'; setPanel(true); render(); return; }
+  if (b.dataset.act2 === 'badgemap' && b.dataset.id) { const t = community.badgeTrails.find(x => x.id === b.dataset.id); if (t) { const bb = badgeBbox(t.geom); closeSheet(); state.follow = false; map.fitBounds([[bb.w, bb.s], [bb.e, bb.n]], { padding: 50 }); } return; }
+  if (b.dataset.act2 === 'badgeedit' && b.dataset.id) { const t = community.badgeTrails.find(x => x.id === b.dataset.id); if (t) badgeTrailForm(t.tids[0] ?? '', t); return; }
+  if (b.dataset.act2 === 'badgeremove' && b.dataset.id) { void community.removeBadgeTrail(b.dataset.id).then(() => { closeSheet(); toast('Badge trail removed. Riders keep badges they earned.'); }, (err: Error) => toast(err.message)); return; }
   if (b.dataset.act2 === 'pinvote' && b.dataset.id) {
     const v = b.dataset.v as 'there' | 'cleared'; community.votePin(b.dataset.id, v);
     toast(v === 'cleared' ? 'Marked cleared. Thanks!' : 'Thanks! Riders will see it was still there.');
+    if (v === 'cleared' && checkBadges()) return;
     drawPins(); drawRemotePins(); renderPane();
     const own = state.pins.find(p => p.sid === b.dataset.id); if (own) pinSheet(own.id); else remotePinSheet(b.dataset.id);
     return;

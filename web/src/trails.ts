@@ -22,15 +22,15 @@ const width = ['interpolate', ['linear'], ['zoom'], 8, ['match', ['get', 'kind']
 type L = LayerSpecification & { source: string; 'source-layer': string };
 export const TRAIL_LAYERS: L[] = [
   // White casing under agency routes so they stand out on satellite imagery.
-  { id: 'trails-casing', type: 'line', source: 'trails', 'source-layer': 'trails', filter: ['!=', ['get', 'src'], 'OSM'],
+  { id: 'trails-casing', type: 'line', source: 'trails', 'source-layer': 'trails', minzoom: 8, filter: ['!=', ['get', 'src'], 'OSM'],
     paint: { 'line-color': '#fff', 'line-opacity': 0.8, 'line-width': ['+', width, 2.5] as never }, layout: { 'line-cap': 'round', 'line-join': 'round' } } as L,
   // OpenStreetMap: dotted, drawn first so agency lines sit on top.
   { id: 'trails-osm', type: 'line', source: 'trails', 'source-layer': 'trails', minzoom: 10, filter: ['==', ['get', 'src'], 'OSM'],
     paint: { 'line-color': accessColor as never, 'line-width': width as never, 'line-dasharray': [0.6, 2], 'line-opacity': 0.85 }, layout: { 'line-cap': 'round' } } as L,
   // Agency routes: solid when open to UTVs, dashed when restricted, thin grey when closed.
-  { id: 'trails-agency', type: 'line', source: 'trails', 'source-layer': 'trails', filter: ['all', ['!=', ['get', 'src'], 'OSM'], ['!', ['in', ['get', 'utv'], ['literal', ['narrow', 'street', 'closed']]]]],
+  { id: 'trails-agency', type: 'line', source: 'trails', 'source-layer': 'trails', minzoom: 8, filter: ['all', ['!=', ['get', 'src'], 'OSM'], ['!', ['in', ['get', 'utv'], ['literal', ['narrow', 'street', 'closed']]]]],
     paint: { 'line-color': accessColor as never, 'line-width': width as never }, layout: { 'line-cap': 'round', 'line-join': 'round' } } as L,
-  { id: 'trails-agency-restricted', type: 'line', source: 'trails', 'source-layer': 'trails', filter: ['all', ['!=', ['get', 'src'], 'OSM'], ['in', ['get', 'utv'], ['literal', ['narrow', 'street', 'closed']]]],
+  { id: 'trails-agency-restricted', type: 'line', source: 'trails', 'source-layer': 'trails', minzoom: 8, filter: ['all', ['!=', ['get', 'src'], 'OSM'], ['in', ['get', 'utv'], ['literal', ['narrow', 'street', 'closed']]]],
     paint: { 'line-color': accessColor as never, 'line-width': width as never, 'line-dasharray': [2, 1.5] } } as L,
   { id: 'trails-labels', type: 'symbol', source: 'trails', 'source-layer': 'trails', minzoom: 12, filter: ['!=', ['get', 'src'], 'OSM'],
     layout: { 'symbol-placement': 'line', 'text-field': ['coalesce', ['get', 'name'], ['get', 'num'], ''], 'text-size': 12, 'text-font': ['Noto Sans Regular'], 'text-max-angle': 30 },
@@ -47,6 +47,24 @@ export function trailColor(by: ColorBy): unknown {
     : ['case', ['!=', comm, null], stepColor(comm), UNRATED_COLOR];
   return rated;
 }
+/** Zoomed-out view: dots where trails are, grouped and counted. Tapping one zooms in. Hidden once trail lines show. */
+export const OVERVIEW_MAXZOOM = 8.6;
+const routes = ['coalesce', ['get', 'routes'], ['get', 'n']];
+export const OVERVIEW_LAYERS: L[] = [
+  { id: 'overview-dots', type: 'circle', source: 'overview', maxzoom: OVERVIEW_MAXZOOM,
+    paint: {
+      'circle-color': '#E8501A',
+      'circle-radius': ['step', routes, 7, 25, 10, 100, 14, 500, 18, 2000, 23] as never,
+      'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-opacity': 0.92,
+    } } as unknown as L,
+  { id: 'overview-count', type: 'symbol', source: 'overview', maxzoom: OVERVIEW_MAXZOOM, filter: ['>=', routes, 25] as never,
+    layout: {
+      'text-field': ['let', 'v', routes, ['case', ['>=', ['var', 'v'], 1000], ['concat', ['to-string', ['/', ['round', ['/', ['var', 'v'], 100]], 10]], 'k'], ['to-string', ['var', 'v']]]] as never,
+      'text-size': 12, 'text-font': ['Noto Sans Regular'], 'text-allow-overlap': true,
+    },
+    paint: { 'text-color': '#fff' } } as unknown as L,
+];
+
 export const COLORED_LAYERS = ['trails-osm', 'trails-agency', 'trails-agency-restricted'];
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);

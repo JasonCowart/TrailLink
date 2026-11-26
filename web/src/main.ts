@@ -1,10 +1,10 @@
 // TrailLink web app.
 import maplibregl, { type GeoJSONSource, type Map as MLMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import type { FeatureCollection } from 'geojson';
+import type { FeatureCollection, Point } from 'geojson';
 import './styles.css';
 import { BASE_MAPS, MVUM_TILES, STREET_STYLE_URL, TRAIL_MAXZOOM, TRAIL_TILES, rasterStyle, type BaseMapId } from './maps.ts';
-import { COLORED_LAYERS, TRAIL_LAYERS, difficultyLegendHtml, legendHtml, rateSheetHtml, ratingHtml, trailColor, trailPopupHtml, type ColorBy } from './trails.ts';
+import { COLORED_LAYERS, OVERVIEW_LAYERS, TRAIL_LAYERS, difficultyLegendHtml, legendHtml, rateSheetHtml, ratingHtml, trailColor, trailPopupHtml, type ColorBy } from './trails.ts';
 import { VEHICLE_FIT, lengthMiles, levelOf, LEVELS, stepColor, type RiderTrail, type VehicleFit } from './community.ts';
 import { OnlineCommunity } from './online.ts';
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
@@ -59,6 +59,12 @@ function styleFor(id: BaseMapId) { return id === 'street' ? STREET_STYLE_URL : r
 function addOverlays() {
   if (!map.getSource('trails')) map.addSource('trails', { type: 'vector', tiles: [TRAIL_TILES], minzoom: 5, maxzoom: TRAIL_MAXZOOM, promoteId: 'tid', attribution: 'USDA Forest Service MVUM, BLM GTLF, © OpenStreetMap contributors' });
   for (const l of TRAIL_LAYERS) if (!map.getLayer(l.id)) map.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: state.trails ? 'visible' : 'none' } } as maplibregl.LayerSpecification);
+  // Zoomed-out overview: dots where trails are.
+  if (!map.getSource('overview')) map.addSource('overview', {
+    type: 'geojson', data: TRAIL_TILES.replace('{z}/{x}/{y}.pbf', 'overview.geojson'),
+    cluster: true, clusterRadius: 42, clusterMaxZoom: 7, clusterProperties: { routes: ['+', ['get', 'n']] },
+  });
+  for (const l of OVERVIEW_LAYERS) if (!map.getLayer(l.id)) map.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: state.trails ? 'visible' : 'none' } } as maplibregl.LayerSpecification);
   // Trails riders created (shown dashed until verified), and the line being drawn right now.
   if (!map.getSource('rider-trails')) map.addSource('rider-trails', { type: 'geojson', data: riderTrailsGeo(), promoteId: 'tid' });
   if (!map.getLayer('rider-trails-casing')) map.addLayer({ id: 'rider-trails-casing', type: 'line', source: 'rider-trails', paint: { 'line-color': '#fff', 'line-width': 7, 'line-opacity': 0.85 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
@@ -101,6 +107,17 @@ function refreshPopup() {
 }
 map.on('click', e => {
   if (state.draw) { addDrawPoint([e.lngLat.lng, e.lngLat.lat]); return; }
+  // Tapping an overview dot zooms in to its trails.
+  const dot = state.trails && map.getLayer('overview-dots') ? map.queryRenderedFeatures([[e.point.x - 10, e.point.y - 10], [e.point.x + 10, e.point.y + 10]], { layers: ['overview-dots'] })[0] : undefined;
+  if (dot) {
+    state.follow = false;
+    const center = (dot.geometry as Point).coordinates as [number, number];
+    const cid = dot.properties.cluster_id as number | undefined;
+    const go = (z: number) => map.easeTo({ center, zoom: Math.max(z, map.getZoom() + 1.5), duration: 600 });
+    if (cid != null) (map.getSource('overview') as GeoJSONSource).getClusterExpansionZoom(cid).then(z => go(Math.min(z + 0.5, 9.5)), () => go(map.getZoom() + 2));
+    else go(9.5);
+    return;
+  }
   const r = 14;
   const layers = [...(state.trails ? TRAIL_LAYERS.map(l => l.id) : []), 'rider-trails'].filter(id => map.getLayer(id) && id !== 'trails-labels' && id !== 'trails-casing');
   const hits = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers });
@@ -535,7 +552,7 @@ $('#pane').addEventListener('click', e => {
 $('#pane').addEventListener('change', e => {
   const t = e.target as HTMLInputElement;
   if (t.id === 'fromride' && t.value) { const ride = state.tracks.find(r => r.id === t.value); if (ride) newTrailForm(ride.points.map(p => [p.lon, p.lat] as [number, number])); t.value = ''; }
-  if (t.dataset.set === 'trails') { state.trails = t.checked; store.set('trails', t.checked); for (const l of TRAIL_LAYERS) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', t.checked ? 'visible' : 'none'); if (!t.checked) popup.remove(); }
+  if (t.dataset.set === 'trails') { state.trails = t.checked; store.set('trails', t.checked); for (const l of [...TRAIL_LAYERS, ...OVERVIEW_LAYERS]) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', t.checked ? 'visible' : 'none'); if (!t.checked) popup.remove(); }
   if (t.dataset.set === 'mvum') { state.mvum = t.checked; store.set('mvumImage', t.checked); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', t.checked ? 'visible' : 'none'); }
   if (t.dataset.set === 'keepAwake') { state.keepAwake = t.checked; store.set('keepAwake', t.checked); void applyWakeLock(); }
 });

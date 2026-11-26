@@ -47,7 +47,7 @@ a.btnlink.danger { background: var(--sos); color: #fff; border: 2px solid #fff; 
 
 #panel { background: var(--paper); border-top: 1px solid var(--line); display: flex; flex-direction: column; max-height: 46vh; padding-bottom: var(--safe-bottom); }
 #app.collapsed #pane { display: none; }
-#panel-toggle { flex: 0 0 48px; border: 0; border-radius: 0; background: none; color: var(--quiet); font-size: 18px; padding: 0; }
+#panel-toggle { flex: 0 0 36px; border: 0; border-radius: 0; background: none; color: var(--quiet); font-size: 18px; padding: 0; }
 #app:not(.collapsed) #panel-toggle span { display: inline-block; transform: rotate(180deg); }
 #tabs { display: flex; border-bottom: 1px solid var(--line); }
 #tabs button { flex: 1 1 0; min-width: 0; padding: 0 1px; font-size: 14px; border: 0; border-radius: 0; background: none; color: var(--quiet); border-bottom: 3px solid transparent; }

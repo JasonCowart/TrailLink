@@ -1408,7 +1408,7 @@ $('#sheet').addEventListener('click', e => {
   if (b.dataset.unvote) { void vote(b.dataset.unvote, null); return; }
   if (b.dataset.vote && b.dataset.tid) { void vote(b.dataset.tid, Number(b.dataset.vote)); return; }
   if (b.dataset.act2 === 'deltrail' && b.dataset.id) { void community.deleteTrail(b.dataset.id).then(() => { closeSheet(); popup.remove(); refreshRiderTrails(); renderPane(); }); return; }
-  if (b.dataset.act2 === 'seebadges') { closeSheet(); state.tab = 'badges'; setPanel(true); render(); return; }
+  if (b.dataset.act2 === 'seebadges') { closeSheet(); state.tab = 'badges'; setPanel(true); render(); $('#pane').scrollTop = 0; return; }
   if (b.dataset.act2 === 'badgemap' && b.dataset.id) { const t = community.badgeTrails.find(x => x.id === b.dataset.id); if (t) { const bb = badgeBbox(t.geom); closeSheet(); state.follow = false; map.fitBounds([[bb.w, bb.s], [bb.e, bb.n]], { padding: 50 }); } return; }
   if (b.dataset.act2 === 'badgeedit' && b.dataset.id) { const t = community.badgeTrails.find(x => x.id === b.dataset.id); if (t) badgeTrailForm(t.tids[0] ?? '', t); return; }
   if (b.dataset.act2 === 'badgeremove' && b.dataset.id) { void community.removeBadgeTrail(b.dataset.id).then(() => { closeSheet(); toast('Badge trail removed. Riders keep badges they earned.'); }, (err: Error) => toast(err.message)); return; }

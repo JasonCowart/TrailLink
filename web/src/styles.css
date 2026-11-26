@@ -46,7 +46,7 @@ a.btnlink.danger { background: var(--sos); color: #fff; border: 2px solid #fff; 
 
 #panel { background: var(--paper); border-top: 1px solid var(--line); display: flex; flex-direction: column; max-height: 42vh; padding-bottom: var(--safe-bottom); }
 #tabs { display: flex; border-bottom: 1px solid var(--line); }
-#tabs button { flex: 1; border: 0; border-radius: 0; background: none; color: var(--quiet); border-bottom: 3px solid transparent; }
+#tabs button { flex: 1 1 0; min-width: 0; padding: 0 2px; font-size: 15px; border: 0; border-radius: 0; background: none; color: var(--quiet); border-bottom: 3px solid transparent; }
 #tabs button[aria-selected="true"] { color: var(--pine); border-bottom-color: var(--action); }
 #pane { overflow: auto; padding: 12px 16px 18px; }
 h2 { font: 700 21px/1.1 'Barlow Condensed', 'Arial Narrow', sans-serif; margin: 12px 0 8px; }

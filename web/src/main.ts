@@ -13,7 +13,7 @@ import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from '
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
 
 // ---------------------------------------------------------------- state
-type Tab = 'ride' | 'trails' | 'pins' | 'maps' | 'group';
+type Tab = 'ride' | 'trails' | 'garage' | 'pins' | 'maps' | 'group';
 const state = {
   tab: 'ride' as Tab,
   base: store.get<BaseMapId>('base', 'topo'),
@@ -148,7 +148,7 @@ map.on('click', e => {
 // Buttons inside the popup.
 for (const el of ['#map', '#pane']) $(el).addEventListener('click', e => {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-rate], button[data-closedetail], button[data-confirm], button[data-act="garage"]'); if (!b) return;
-  if (b.dataset.act === 'garage') { popup.remove(); if (state.detail) { state.detail = false; tapMarker.remove(); } state.tab = 'trails'; render(); $('#pane').scrollTop = 0; return; }
+  if (b.dataset.act === 'garage') { popup.remove(); if (state.detail) { state.detail = false; tapMarker.remove(); } state.tab = 'garage'; render(); $('#pane').scrollTop = 0; return; }
   if (b.dataset.rate) openRateSheet(b.dataset.rate);
   if (b.dataset.confirm) { void community.confirmTrail(b.dataset.confirm).then(() => { refreshPopup(); toast('Thanks! Three confirmations make a trail verified.'); }); }
   if (b.dataset.closedetail != null) closeDetails();
@@ -188,7 +188,7 @@ function applyRigMarks() {
 function openRateSheet(tid: string) {
   const title = popupProps?.name || (popupProps?.num ? `route ${popupProps.num}` : community.trails().find(t => `RIDER:${t.id}` === tid)?.name) || 'this trail';
   const vs = community.garage(), v = community.activeVehicle();
-  const rigLine = !v ? '<p class="quiet">Tip: add your vehicle to the Garage (Trails tab) so your rating helps riders with a similar setup.</p>'
+  const rigLine = !v ? '<p class="quiet">Tip: add your vehicle in the Garage tab so your rating helps riders with a similar setup.</p>'
     : vs.length > 1 ? `<label class="rigpick">Rode it in <select id="ratevehicle">${vs.map(x => `<option value="${x.id}" ${x.id === v.id ? 'selected' : ''}>${esc(x.nickname)} (${rigClass(rigScore(x)).toLowerCase()})</option>`).join('')}</select></label>`
     : `<p class="quiet">Rode it in your <b>${esc(v.nickname)}</b> (${rigClass(rigScore(v)).toLowerCase()}, ${rigScore(v)}/10).</p>`;
   sheet(rateSheetHtml(tid, title, community.myRatings().get(tid), rigLine));
@@ -577,7 +577,7 @@ const views: Record<Tab, () => string> = {
     const mine = community.trails();
     const rides = state.tracks.filter(t => t.endedAt && t.points.length > 1);
     const rated = community.myRatings().size;
-    return `${garageHtml()}
+    return `
       <h2>Add a trail</h2>
       <p class="quiet">Missing a trail? Draw it on the map, or turn one of your recorded rides into a trail.</p>
       <div class="btns"><button class="primary" data-act="draw">Draw on the map</button>
@@ -588,6 +588,13 @@ const views: Record<Tab, () => string> = {
       <h2>Your ratings</h2>
       <p class="quiet">${rated ? `You've rated ${rated} trail${rated === 1 ? '' : 's'}.` : 'Tap any trail on the map and choose "Rate difficulty".'}</p>
       ${accountHtml()}`;
+  },
+  garage() {
+    return `${garageHtml()}
+      <h2>How the forecast works</h2>
+      <p class="quiet">Each rating saves the vehicle it was ridden in. For your rig, TrailLink starts from the riders' rating and adjusts it by how their vehicles compare to yours: a trail rated 7 in stock rigs may be a 4 in a full build, and the reverse.</p>
+      <p class="quiet">Rig score: tires and lift count most, then lockers, then skid plates and rock sliders. A winch helps you recover, not climb, so it doesn't change the score.</p>
+      <p class="quiet">See it on the map: Maps tab › Color trails by › Difficulty: my rig, and the ▲ harder / ▼ easier markers.</p>`;
   },
   pins() {
     const p = state.pos;
@@ -616,9 +623,9 @@ const views: Record<Tab, () => string> = {
       </div>
       ${state.colorBy === 'access' ? legendHtml() : difficultyLegendHtml()}
       ${state.colorBy === 'mine' ? '<p class="quiet">Trails you rated show your rating; the rest show the riders\' rating.</p>' : ''}
-      ${state.colorBy === 'rig' ? (community.activeVehicle() ? `<p class="quiet">Forecast for your <b>${esc(community.activeVehicle()!.nickname)}</b>: the riders' rating, adjusted for how their rigs compare to yours.</p>` : '<p class="quiet">Add your vehicle to the Garage (Trails tab) to see trails colored for your rig.</p>') : ''}
+      ${state.colorBy === 'rig' ? (community.activeVehicle() ? `<p class="quiet">Forecast for your <b>${esc(community.activeVehicle()!.nickname)}</b>: the riders' rating, adjusted for how their rigs compare to yours.</p>` : '<p class="quiet">Add your vehicle in the Garage tab to see trails colored for your rig.</p>') : ''}
       <label class="tg"><span><span class="mk harder">▲</span><span class="mk easier">▼</span> Mark trails that are harder or easier for my rig</span> <input type="checkbox" data-set="rigMarks" ${state.rigMarks ? 'checked' : ''}></label>
-      ${state.rigMarks && !community.activeVehicle() ? '<p class="quiet">Markers appear once you add a vehicle to your Garage.</p>' : ''}
+      ${state.rigMarks && !community.activeVehicle() ? '<p class="quiet">Markers appear once you add a vehicle in the Garage tab.</p>' : ''}
       <p class="quiet">Tap any trail for details. Sources: Forest Service Motor Vehicle Use Maps and BLM travel plans (legal designations), plus OpenStreetMap (community data, not a legal designation). Covers ${state.trailMeta ? `${state.trailMeta.counts ? Object.values(state.trailMeta.counts).reduce((a, b) => a + b, 0).toLocaleString() : ''} routes in Colorado and Utah, updated ${new Date(state.trailMeta.built).toLocaleDateString()}` : 'Colorado and Utah'}. Always follow posted signs.</p>
       <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
       <h2>Offline maps</h2>
@@ -815,7 +822,7 @@ $('#btn-center').classList.add('active');
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state } });
 // Invite-only: until this phone has signed in once, show the sign-in screen instead of the app.
 function updateGate() { $('#gate').hidden = community.trusted; }
-community.onChange = () => { updateGate(); refreshRiderTrails(); applyRigMarks(); refreshPopup(); if (state.tab === 'trails' && !state.detail) renderPane(); };
+community.onChange = () => { updateGate(); refreshRiderTrails(); applyRigMarks(); refreshPopup(); if ((state.tab === 'trails' || state.tab === 'garage') && !state.detail) renderPane(); };
 updateGate();
 void community.init().then(updateGate, updateGate);
 $('#gateform').addEventListener('submit', e => {

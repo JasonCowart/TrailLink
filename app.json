@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "TrailLink",
+    "slug": "traillink",
+    "scheme": "traillink",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "com.traillink.app",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "TrailLink shows your position on the trail map and shares it with your ride group.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "TrailLink keeps sharing your position with your ride group while your phone is in your pocket or the screen is off.",
+        "NSCameraUsageDescription": "TrailLink uses the camera to scan a ride's QR code so you can join the group.",
+        "NSBluetoothAlwaysUsageDescription": "TrailLink uses Bluetooth to swap positions with nearby riders and to talk to your vehicle's mesh radio when there is no cell signal.",
+        "UIBackgroundModes": ["location", "bluetooth-central", "bluetooth-peripheral"]
+      }
+    },
+    "android": {
+      "package": "com.traillink.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "CAMERA",
+        "BLUETOOTH_SCAN",
+        "BLUETOOTH_CONNECT",
+        "BLUETOOTH_ADVERTISE"
+      ]
+    },
+    "plugins": [
+      "expo-sqlite",
+      ["expo-location", { "isAndroidBackgroundLocationEnabled": true, "isAndroidForegroundServiceEnabled": true }],
+      ["expo-camera", { "barcodeScannerEnabled": true }],
+      "@maplibre/maplibre-react-native"
+    ],
+    "extra": {
+      "relayUrl": "https://relay.example.invalid"
+    }
+  }
+}

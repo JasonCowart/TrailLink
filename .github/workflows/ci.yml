@@ -1,0 +1,44 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Engine and relay tests (no dependencies needed)
+        run: npm test
+      - name: Install app packages and align versions with the Expo SDK
+        run: |
+          npm install --no-audit --no-fund
+          npx expo install --fix
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Expo project health check
+        run: npx expo-doctor
+        continue-on-error: true
+
+  build:
+    # Builds installable test apps in Expo's cloud. Runs only when you start it by hand
+    # from the Actions tab and after the EXPO_TOKEN secret is added to the repo.
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm install --no-audit --no-fund && npx expo install --fix
+      - name: Android test build (APK you can install directly)
+        run: eas build --platform android --profile preview --non-interactive --no-wait

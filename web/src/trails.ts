@@ -8,11 +8,12 @@ export const UTV_COLORS = {
   open: '#E8501A',    // UTVs of any width
   limited: '#B45309', // open with restrictions (see details)
   narrow: '#7C3AED',  // only vehicles 50" or narrower (ATVs, small OHVs)
+  street: '#2563EB',  // highway-legal vehicles only (street-legal UTVs may qualify)
   closed: '#6B7280',  // closed to OHVs (still shown so riders know)
   unknown: '#3F3A2E', // community data with no legal designation
 } as const;
 
-const color = ['match', ['get', 'utv'], 'open', UTV_COLORS.open, 'limited', UTV_COLORS.limited, 'narrow', UTV_COLORS.narrow, 'closed', UTV_COLORS.closed, UTV_COLORS.unknown];
+const color = ['match', ['get', 'utv'], 'open', UTV_COLORS.open, 'limited', UTV_COLORS.limited, 'narrow', UTV_COLORS.narrow, 'street', UTV_COLORS.street, 'closed', UTV_COLORS.closed, UTV_COLORS.unknown];
 const width = ['interpolate', ['linear'], ['zoom'], 8, ['match', ['get', 'kind'], 'road', 1.6, 1.2], 13, ['match', ['get', 'kind'], 'road', 4, 3], 16, ['match', ['get', 'kind'], 'road', 7, 5]];
 
 type L = LayerSpecification & { source: string; 'source-layer': string };
@@ -24,9 +25,9 @@ export const TRAIL_LAYERS: L[] = [
   { id: 'trails-osm', type: 'line', source: 'trails', 'source-layer': 'trails', minzoom: 10, filter: ['==', ['get', 'src'], 'OSM'],
     paint: { 'line-color': color as never, 'line-width': width as never, 'line-dasharray': [0.6, 2], 'line-opacity': 0.85 }, layout: { 'line-cap': 'round' } } as L,
   // Agency routes: solid when open to UTVs, dashed when restricted, thin grey when closed.
-  { id: 'trails-agency', type: 'line', source: 'trails', 'source-layer': 'trails', filter: ['all', ['!=', ['get', 'src'], 'OSM'], ['!', ['in', ['get', 'utv'], ['literal', ['narrow', 'closed']]]]],
+  { id: 'trails-agency', type: 'line', source: 'trails', 'source-layer': 'trails', filter: ['all', ['!=', ['get', 'src'], 'OSM'], ['!', ['in', ['get', 'utv'], ['literal', ['narrow', 'street', 'closed']]]]],
     paint: { 'line-color': color as never, 'line-width': width as never }, layout: { 'line-cap': 'round', 'line-join': 'round' } } as L,
-  { id: 'trails-agency-restricted', type: 'line', source: 'trails', 'source-layer': 'trails', filter: ['all', ['!=', ['get', 'src'], 'OSM'], ['in', ['get', 'utv'], ['literal', ['narrow', 'closed']]]],
+  { id: 'trails-agency-restricted', type: 'line', source: 'trails', 'source-layer': 'trails', filter: ['all', ['!=', ['get', 'src'], 'OSM'], ['in', ['get', 'utv'], ['literal', ['narrow', 'street', 'closed']]]],
     paint: { 'line-color': color as never, 'line-width': width as never, 'line-dasharray': [2, 1.5] } } as L,
   { id: 'trails-labels', type: 'symbol', source: 'trails', 'source-layer': 'trails', minzoom: 12, filter: ['!=', ['get', 'src'], 'OSM'],
     layout: { 'symbol-placement': 'line', 'text-field': ['coalesce', ['get', 'name'], ['get', 'num'], ''], 'text-size': 12, 'text-font': ['Noto Sans Regular'], 'text-max-angle': 30 },
@@ -39,6 +40,7 @@ const UTV_TEXT: Record<string, string> = {
   open: 'Open to UTVs',
   limited: 'Open to UTVs, with restrictions',
   narrow: 'Only vehicles 50" wide or less',
+  street: 'Highway-legal vehicles only (a street-legal UTV may qualify)',
   closed: 'Closed to OHVs',
   unknown: 'No legal designation in our data',
 };
@@ -71,6 +73,7 @@ export function legendHtml(): string {
     ${item(UTV_COLORS.open, 'UTVs allowed')}
     ${item(UTV_COLORS.limited, 'UTVs, with limits')}
     ${item(UTV_COLORS.narrow, '50" and under only', true)}
+    ${item(UTV_COLORS.street, 'Highway-legal only', true)}
     ${item(UTV_COLORS.closed, 'Closed to OHVs', true)}
     ${item(UTV_COLORS.unknown, 'Community-mapped (OSM)', false, true)}
   </div>`;

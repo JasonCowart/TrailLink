@@ -64,13 +64,24 @@ async function* arcgisFeatures(layerUrl, bbox, where = '1=1', outFields = '*') {
 // ------------------------------------------------------------------ normalising
 const yes = v => v != null && String(v).trim() !== '' && !/^(closed|no|n|null|none|0)$/i.test(String(v).trim());
 const clean = v => (v == null ? undefined : String(v).trim() || undefined);
-const title = s => s && s.toLowerCase().replace(/\b([a-z])/g, c => c.toUpperCase());
+// Title-case ALL-CAPS names, but leave route codes (anything with a digit) as they are: "BLM T6102E", "FS 412".
+const title = s => s && (/\d/.test(s) ? s.toUpperCase() : s.toLowerCase().replace(/\b([a-z])/g, c => c.toUpperCase()));
+const YEAR_ROUND = /^0?1\/0?1\s*-\s*12\/31$/;
+const BLM_VEHICLES = {
+  ALL_MOTO_VEH: 'All motorized vehicles', MTC_ATV_SHARED: 'Motorcycles and ATVs', MTC_ONLY: 'Motorcycles only', ATV_ONLY: 'ATVs only',
+  UTV_ATV_MTC: 'UTVs, ATVs and motorcycles', HIGHWAY_LEGAL: 'Highway-legal vehicles', FOUR_WD: '4WD vehicles', '4WD': '4WD vehicles',
+};
+const blmVehicles = v => { if (!v || /^unk/i.test(v)) return undefined; const k = v.toUpperCase(); return BLM_VEHICLES[k] ?? title(v.replace(/_/g, ' ')); };
 
 /** utv: 'open' (any width), 'narrow' (only vehicles 50" or less), 'limited' (open with restrictions), 'closed', 'unknown'. */
 function fromMvum(p, kind) {
   const wide = yes(p.other_ohv_gt50inches) || yes(p.fourwd_gt50inches);
   const narrow = yes(p.other_ohv_lt50inches) || yes(p.atv);
-  const dates = clean(p.other_ohv_gt50_datesopen) ?? clean(p.fourwd_gt50_datesopen) ?? clean(p.other_ohv_lt50_datesopen) ?? clean(p.atv_datesopen);
+  const rawDates = clean(p.other_ohv_gt50_datesopen) ?? clean(p.fourwd_gt50_datesopen) ?? clean(p.other_ohv_lt50_datesopen) ?? clean(p.atv_datesopen)
+    ?? clean(p.highclearancevehicle_datesopen) ?? clean(p.passengervehicle_datesopen);
+  const yearRound = !rawDates || YEAR_ROUND.test(rawDates);
+  const dates = rawDates ? (yearRound ? 'Open all year' : `Open ${rawDates}`) : undefined;
+  const streetOnly = !wide && !narrow && (yes(p.passengervehicle) || yes(p.highclearancevehicle));
   const vehicles = [
     yes(p.passengervehicle) && 'Passenger cars',
     yes(p.highclearancevehicle) && 'High-clearance vehicles',
@@ -84,8 +95,9 @@ function fromMvum(p, kind) {
     name: clean(p.name) ? title(p.name) : undefined,
     num: clean(p.id),
     unit: [clean(p.forestname), clean(p.districtname)].filter(Boolean).join(' · ') || undefined,
-    utv: wide ? 'open' : narrow ? 'narrow' : vehicles.length ? 'closed' : 'unknown',
-    seasonal: /yes|seasonal/i.test(String(p.seasonal ?? '')) || !!dates,
+    // MVUM roads open only to passenger and high-clearance vehicles are for highway-legal vehicles (a street-legal UTV may qualify).
+    utv: wide ? 'open' : narrow ? 'narrow' : streetOnly ? 'street' : vehicles.length ? 'closed' : 'unknown',
+    seasonal: !yearRound,
     dates,
     vehicles: vehicles.join(', ') || undefined,
   };
@@ -93,7 +105,8 @@ function fromMvum(p, kind) {
 
 function fromBlm(p, kind) {
   const dsg = String(p.PLAN_OHV_ROUTE_DSGNTN ?? '').toUpperCase();
-  const allowed = clean(p.PLAN_ALLOW_MODE_TRNSPRT);
+  const allowedRaw = clean(p.PLAN_ALLOW_MODE_TRNSPRT);
+  const allowed = allowedRaw && !/^unk/i.test(allowedRaw) ? allowedRaw : undefined;
   const lim = clean(p.OHV_ROUTE_DSGNTN_LIM);
   const explain = clean(p.OHV_DSGNTN_LIM_EXPLAIN);
   const utvNamed = allowed ? /UTV|SIDE|OHV|4WD|4X4|ALL/i.test(allowed) : false;
@@ -105,8 +118,8 @@ function fromBlm(p, kind) {
     unit: `BLM ${clean(p.ADMIN_ST) ?? ''}`.trim(),
     utv: dsg === 'CLOSED' ? 'closed' : dsg === 'OPEN' ? (atvOnly ? 'narrow' : 'open') : dsg === 'LIMITED' ? (atvOnly ? 'narrow' : 'limited') : 'unknown',
     seasonal: /SEASON/i.test(lim ?? '') || /season/i.test(explain ?? ''),
-    dates: clean(p.PLAN_SEASON_RSTRCT_CODE),
-    vehicles: allowed ? title(allowed) : undefined,
+    dates: /^(no|none|n|unk.*)$/i.test(clean(p.PLAN_SEASON_RSTRCT_CODE) ?? 'no') ? undefined : clean(p.PLAN_SEASON_RSTRCT_CODE),
+    vehicles: blmVehicles(allowed),
     note: [lim && title(lim), explain].filter(Boolean).join(': ') || undefined,
   };
 }

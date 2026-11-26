@@ -254,3 +254,14 @@ button.mpin.strobe .ricon { animation: strobe-tile 1.6s infinite; }
 @keyframes strobe-ring { 0% { transform: scale(1); opacity: 1; } 70% { transform: scale(2.6); opacity: 0; } 100% { transform: scale(2.6); opacity: 0; } }
 @keyframes strobe-tile { 0%, 30%, 100% { filter: none; } 3%, 9%, 16%, 22% { filter: brightness(1.45); } 12%, 25% { filter: none; } }
 @media (prefers-reduced-motion: reduce) { button.mpin .flash { display: none; } button.mpin.strobe .ricon { animation: none; } }
+/* Compact pin rows */
+.pinline { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.pinline > .ricon { box-shadow: none; }
+button.pinmain { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; border: 0; background: none; padding: 0; min-height: 44px; justify-content: center; text-align: left; font-weight: 700; }
+button.pinmain b, button.pinmain span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button.pinmain span { font-weight: 500; font-size: 13px; }
+.ibtns { display: flex; gap: 4px; flex: none; }
+.ibtn { width: 40px; height: 40px; min-height: 0; padding: 0; display: grid; place-items: center; border-radius: 12px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); flex: none; }
+label.ibtn.filebtn { min-height: 0; }
+.pinrow .thumbs { padding: 0 0 8px 42px; }
+.pinrow .thumb { width: 52px; height: 52px; }

@@ -12,6 +12,14 @@ import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from './photos.ts';
 import { REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
+// Small line icons for compact buttons.
+const ico = (d: string) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICONS = {
+  target: ico('<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>'),
+  move: ico('<path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>'),
+  camera: ico('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
+  x: ico('<path d="M6 6l12 12M18 6 6 18"/>'),
+};
 import { BADGE_COLORS as BADGE_TRAIL_COLORS, BADGE_ICONS, MILESTONES, badgeSvg, bbox as badgeBbox, coverage, earnedOnRide, rodeIn, type BadgeIcon, type BadgeTrail, type RiderStats } from './badges.ts';
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
 
@@ -1184,10 +1192,18 @@ const views: Record<Tab, () => string> = {
         const d = p ? `${(distanceM(p, pin) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(p, pin))}` : '';
         const ph = pin.photos ?? [];
         const sp = sharedOf(pin);
-        const shareTag = sp?.status === 'cleared' ? ' <span class="tag">Cleared</span>' : pin.share === 'all' ? ' <span class="tag">All riders</span>' : pin.share === 'group' ? ' <span class="tag">Group</span>' : '';
-        return `<div class="pinrow"><div class="row">${pin.report ? reportIcon(pin.report, 34) : ''}<div class="grow"><b>${esc(pinTitle(pin))}</b>${shareTag}<div class="quiet">${d}${d ? ' · ' : ''}${new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div></div>
-          <button data-goto="${pin.id}" aria-label="Show on map">Show</button><button data-movepin="${pin.id}" aria-label="Move pin">Move</button><button data-delpin="${pin.id}" aria-label="Delete pin">✕</button></div>
-          <div class="thumbs">${ph.map(id => `<button class="thumb" data-openpin="${pin.id}" aria-label="View photo"><img data-photo="${id}" alt=""></button>`).join('')}${photoInput(`data-addphoto="${pin.id}"`, ph.length ? '+' : '📷 Add photo', ph.length ? 'thumb add' : 'small')}</div></div>`;
+        const shareTag = sp?.status === 'cleared' ? 'Cleared' : pin.share === 'all' ? 'All riders' : pin.share === 'group' ? 'Group' : '';
+        const when = new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).replace(' at ', ' ');
+        // One compact line: icon · name (+ distance, time, sharing) · icon buttons.
+        return `<div class="pinrow"><div class="pinline">${pinIcon(pin.kind, pin.report, 32)}
+          <button class="pinmain" data-openpin="${pin.id}"><b>${esc(pinTitle(pin))}</b><span class="quiet">${[d, when, shareTag].filter(Boolean).join(' · ')}</span></button>
+          <span class="ibtns">
+            <button class="ibtn" data-goto="${pin.id}" aria-label="Show ${esc(pinTitle(pin))} on the map" title="Show on map">${ICONS.target}</button>
+            <button class="ibtn" data-movepin="${pin.id}" aria-label="Move ${esc(pinTitle(pin))}" title="Move">${ICONS.move}</button>
+            <label class="ibtn filebtn" title="Add photo" aria-label="Add a photo to ${esc(pinTitle(pin))}">${ICONS.camera}<input type="file" accept="image/*" multiple data-addphoto="${pin.id}"></label>
+            <button class="ibtn" data-delpin="${pin.id}" aria-label="Delete ${esc(pinTitle(pin))}" title="Delete">${ICONS.x}</button>
+          </span></div>
+          ${ph.length ? `<div class="thumbs">${ph.map(id => `<button class="thumb" data-openpin="${pin.id}" aria-label="View photo"><img data-photo="${id}" alt=""></button>`).join('')}</div>` : ''}</div>`;
       }).join('') : '<p class="quiet">No pins yet. Pins and their photos stay on this phone and work offline.</p>'}
       ${community.signedIn ? `<label class="tg"><span>Share my new pins with my group<br><span class="quiet">${community.group ? `Regroup points, notes and photo pins go to ${esc(community.group.name)}. Hazard reports always go to all riders.` : 'Join a ride group first (Group tab). Hazard reports always go to all riders.'}</span></span><input type="checkbox" data-set="shareNewPins" ${store.get('shareNewPins', false) ? 'checked' : ''}></label>` : ''}
       ${sharedPinsHtml()}

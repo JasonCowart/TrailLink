@@ -141,6 +141,13 @@ map.on('click', e => {
     else go(9.5);
     return;
   }
+  // Tapping a group rider shows who it is and when they were last seen.
+  const rider = map.getLayer('riders-dot') ? map.queryRenderedFeatures([[e.point.x - 16, e.point.y - 16], [e.point.x + 16, e.point.y + 16]], { layers: ['riders-dot'] })[0] : undefined;
+  if (rider) {
+    const m = community.members.find(x => x.riderId === rider.properties.id);
+    if (m?.pos) toast(`${m.name} · seen ${ago(m.pos.at)}${state.pos ? ` · ${(distanceM(state.pos, m.pos) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, m.pos))} of you` : ''}`);
+    return;
+  }
   const r = 14;
   const layers = [...(state.trails ? TRAIL_LAYERS.map(l => l.id) : []), 'rider-trails'].filter(id => map.getLayer(id) && id !== 'trails-labels' && id !== 'trails-casing');
   const hits = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers });

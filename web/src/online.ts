@@ -21,6 +21,11 @@ interface RemoteTrailRow {
 const read = <T>(k: string, d: T): T => { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : d; } catch { return d; } };
 const write = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* full */ } };
 
+export interface AdminRider {
+  email: string; rider_id: string | null; display_name: string | null; invited_at: string | null; joined_at: string | null;
+  last_seen: string | null; is_reviewer: boolean; is_admin: boolean; ratings: number; trails: number;
+}
+
 export type SyncState = 'offline' | 'syncing' | 'up-to-date' | 'error';
 
 export class OnlineCommunity implements Community {
@@ -33,6 +38,7 @@ export class OnlineCommunity implements Community {
   private cachedScores = new Map<string, CommunityScore>(Object.entries(read<Record<string, CommunityScore>>('traillink.scores', {})));
   private remote: RiderTrail[] = read('traillink.remoteTrails', []);
   private confirmed = new Set<string>(read<string[]>('traillink.confirmed', []));
+  isAdmin: boolean = read('traillink.isAdmin', false);
   syncState: SyncState = 'offline';
   lastSynced: string | null = read('traillink.lastSynced', null);
   onChange: () => void = () => {};
@@ -60,25 +66,29 @@ export class OnlineCommunity implements Community {
   async sendCode(email: string, name: string) {
     if (name.trim()) this.setName(name);
     const redirect = `${location.origin}${location.pathname}`;
-    // Invite-only: never create accounts from the app. Riders exist only if the owner invited them.
-    const { error } = await this.sb.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect, shouldCreateUser: false } });
-    if (error) throw new Error(/signup|not allowed|not found|otp_disabled/i.test(`${error.message} ${error.code ?? ''}`)
-      ? "That email hasn't been invited to TrailLink. Ask your ride leader for an invite."
-      : error.message);
+    // Invite-only: a rider's account is created on first sign-in, but the database refuses emails that aren't on the admin's invite list.
+    const { error } = await this.sb.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect, shouldCreateUser: true } });
+    if (error) {
+      const m = `${error.message} ${error.code ?? ''}`;
+      throw new Error(/rate limit|over_email_send_rate/i.test(m) ? 'TrailLink has sent too many sign-in emails this hour. Try again in a little while.'
+        : /invited|signup|not allowed|not found|otp_disabled/i.test(m) ? "That email hasn't been invited to TrailLink. Ask your ride leader for an invite."
+        : error.message);
+    }
   }
   async verifyCode(email: string, code: string) {
     const { error } = await this.sb.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' });
     if (error) throw new Error(error.message);
   }
-  async signOut() { await this.sb.auth.signOut(); this.session = null; write('traillink.everSignedIn', false); this.onChange(); }
+  async signOut() { await this.sb.auth.signOut(); this.session = null; this.isAdmin = false; write('traillink.isAdmin', false); write('traillink.everSignedIn', false); this.onChange(); }
   /** True once this phone has signed in, so the app keeps opening on the trail even if the session can't refresh offline. */
   get trusted() { return this.signedIn || read('traillink.everSignedIn', false); }
 
   private async afterSignIn() {
     if (!this.session) return;
     const name = this.profileName || this.local.me()?.name;
-    const { data } = await this.sb.from('profiles').select('display_name').eq('id', this.session.user.id).maybeSingle();
+    const { data } = await this.sb.from('profiles').select('display_name,is_admin').eq('id', this.session.user.id).maybeSingle();
     if (data?.display_name && !name) this.setName(data.display_name);
+    this.isAdmin = !!data?.is_admin; write('traillink.isAdmin', this.isAdmin); this.onChange();
     const display = (data?.display_name as string | undefined) ?? name ?? this.session.user.email?.split('@')[0] ?? 'Rider';
     if (!data) await this.sb.from('profiles').insert({ id: this.session.user.id, display_name: display.slice(0, 40) });
     else if (name && name !== data.display_name) await this.sb.from('profiles').update({ display_name: name.slice(0, 40) }).eq('id', this.session.user.id);
@@ -127,6 +137,18 @@ export class OnlineCommunity implements Community {
   hasConfirmed(id: string) { return this.confirmed.has(id); }
   async confirmTrail(id: string) { this.confirmed.add(id); write('traillink.confirmed', [...this.confirmed]); this.queue({ k: 'confirm', id }); }
   pendingCount() { return this.outbox.length; }
+
+  // ---------------------------------------------------------------- admin tools (need signal; the database checks the rider is an admin)
+  private async rpc<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
+    if (!navigator.onLine) throw new Error('No signal. Managing riders needs a connection.');
+    const { data, error } = await this.sb.rpc(fn, args);
+    if (error) throw new Error(error.message);
+    return data as T;
+  }
+  adminRiders() { return this.rpc<AdminRider[]>('admin_riders'); }
+  adminInvite(email: string) { return this.rpc<void>('admin_invite', { p_email: email }); }
+  adminRemove(email: string) { return this.rpc<void>('admin_remove', { p_email: email }); }
+  adminSetRole(riderId: string, reviewer: boolean, admin: boolean) { return this.rpc<void>('admin_set_role', { p_rider: riderId, p_reviewer: reviewer, p_admin: admin }); }
 
   // ---------------------------------------------------------------- upload queue and download
   private queue(op: Op) {

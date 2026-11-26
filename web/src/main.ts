@@ -6,7 +6,7 @@ import './styles.css';
 import { BASE_MAPS, MVUM_TILES, STREET_STYLE_URL, TRAIL_MAXZOOM, TRAIL_TILES, rasterStyle, type BaseMapId } from './maps.ts';
 import { COLORED_LAYERS, OVERVIEW_LAYERS, TRAIL_LAYERS, difficultyLegendHtml, legendHtml, rateSheetHtml, ratingHtml, trailColor, trailPopupHtml, type ColorBy } from './trails.ts';
 import { VEHICLE_FIT, lengthMiles, levelOf, LEVELS, stepColor, type RiderTrail, type VehicleFit } from './community.ts';
-import { OnlineCommunity } from './online.ts';
+import { OnlineCommunity, type AdminRider } from './online.ts';
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
@@ -22,6 +22,7 @@ const state = {
   draw: null as null | { coords: [number, number][] },
   detail: false,
   signin: null as null | { email: string; sent: boolean; busy: boolean; error?: string },
+  admin: { riders: null as AdminRider[] | null, busy: false, error: '', invited: '' },
   trailMeta: null as null | { built: string; counts: Record<string, number> },
   follow: true,
   pos: null as null | { lat: number; lon: number; acc: number; alt?: number; speed?: number; heading?: number; t: number },
@@ -188,7 +189,8 @@ function accountHtml(): string {
     return `<h2>Sharing with riders</h2>
       <div class="card"><b>${esc(community.me()?.name ?? 'Rider')}</b><div class="quiet">${esc(community.email ?? '')}</div>
       <p class="quiet">${pending ? `${pending} change${pending === 1 ? '' : 's'} waiting to upload. ` : ''}${status}${community.lastSynced ? ` Last synced ${new Date(community.lastSynced).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : ''}</p>
-      <div class="btns"><button data-act="sync">Sync now</button><button data-act="rename">Change name</button><button data-act="signout">Sign out</button></div></div>`;
+      <div class="btns"><button data-act="sync">Sync now</button><button data-act="rename">Change name</button><button data-act="signout">Sign out</button></div>
+      ${community.isAdmin ? '<div class="btns"><button data-act="admin">Manage riders (admin)</button></div>' : ''}</div>`;
   }
   const si = state.signin;
   return `<h2>Share with other riders</h2>
@@ -207,6 +209,57 @@ function accountHtml(): string {
         <div class="btns"><button class="primary" ${si?.busy ? 'disabled' : ''}>Email me a sign-in link</button></div>
       </form>`}
     <p class="quiet">${community.mode === 'online' ? 'Connected: you can already see other riders\' ratings and trails.' : status}</p>`;
+}
+
+// ---------------------------------------------------------------- admin: approve and manage riders
+const APP_URL = `${location.origin}${location.pathname}`;
+const inviteText = (email: string) =>
+  `You're invited to TrailLink, our group's off-road trail map. Open ${APP_URL} on your phone, enter ${email} and tap "Email me a sign-in link". Then add it to your home screen.`;
+const shortDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+
+function loadRiders() {
+  const a = state.admin; a.busy = true; a.error = '';
+  community.adminRiders().then(r => { a.riders = r; }, (e: Error) => { a.error = e.message; })
+    .finally(() => { a.busy = false; if (state.tab === 'group' && !state.detail) renderPane(); });
+}
+
+function adminHtml(): string {
+  const a = state.admin;
+  if (!a.riders && !a.busy && !a.error) loadRiders();
+  const joined = (a.riders ?? []).filter(r => r.joined_at), pending = (a.riders ?? []).filter(r => !r.joined_at);
+  const row = (r: AdminRider) => {
+    const tags = [r.is_admin ? 'Admin' : r.is_reviewer ? 'Reviewer' : ''].filter(Boolean).map(t => `<span class="tag">${t}</span>`).join('');
+    const info = r.joined_at
+      ? `Joined ${shortDate(r.joined_at)}${r.last_seen ? ` · last signed in ${shortDate(r.last_seen)}` : ''} · ${r.ratings} rating${r.ratings === 1 ? '' : 's'} · ${r.trails} trail${r.trails === 1 ? '' : 's'}`
+      : `Approved ${shortDate(r.invited_at)} · hasn't signed in yet`;
+    const me = r.rider_id === community.session?.user.id;
+    const btns = !r.joined_at ? `<button data-invitesend="${esc(r.email)}">Send invite</button>`
+      : me || r.is_admin ? ''
+      : `<button data-role="${r.rider_id}" data-reviewer="${!r.is_reviewer}">${r.is_reviewer ? 'Remove reviewer' : 'Make reviewer'}</button>`;
+    return `<div class="row"><div class="grow"><b>${esc(r.display_name ?? r.email)}</b> ${tags}
+      <div class="quiet">${r.display_name ? `${esc(r.email)} · ` : ''}${info}</div></div>
+      ${btns}${me ? '' : `<button data-removerider="${esc(r.email)}" aria-label="Remove ${esc(r.display_name ?? r.email)}">✕</button>`}</div>`;
+  };
+  return `<h2>Riders <span class="tag">Admin</span></h2>
+    <p class="quiet">Only people you approve here can sign in to TrailLink.</p>
+    <form id="inviteform" class="form">
+      <label>Approve a rider's email<input name="email" type="email" autocomplete="off" required placeholder="rider@example.com"></label>
+      <div class="btns"><button class="primary" ${a.busy ? 'disabled' : ''}>Approve</button></div>
+    </form>
+    ${a.invited ? `<div class="card"><b>${esc(a.invited)} is approved.</b><p class="quiet">Send them the app link so they can sign in.</p>
+      <div class="btns"><button class="primary" data-invitesend="${esc(a.invited)}">Send invite</button><button data-invitecopy="${esc(a.invited)}">Copy message</button></div></div>` : ''}
+    ${a.error ? `<p class="quiet" style="color:var(--red)">${esc(a.error)}</p>` : ''}
+    ${a.riders ? `<p class="quiet" style="margin-bottom:4px"><b>Signed up (${joined.length})</b></p>${joined.map(row).join('') || '<p class="quiet">Nobody yet.</p>'}
+      ${pending.length ? `<p class="quiet" style="margin:12px 0 4px"><b>Approved, waiting to sign in (${pending.length})</b></p>${pending.map(row).join('')}` : ''}`
+      : a.busy ? '<p class="quiet">Loading riders…</p>' : ''}
+    <div class="btns"><button data-act="admin-refresh">Refresh list</button></div>
+    <p class="quiet">Reviewers can verify or hide rider-created trails.</p>`;
+}
+
+async function sendInvite(email: string) {
+  const text = inviteText(email);
+  if (navigator.share) { try { await navigator.share({ title: 'TrailLink invite', text }); return; } catch (e) { if ((e as Error).name === 'AbortError') return; } }
+  location.href = `sms:?&body=${encodeURIComponent(text)}`;
 }
 
 // ---------------------------------------------------------------- rider-created trails
@@ -496,7 +549,7 @@ const views: Record<Tab, () => string> = {
       ${areas.length ? '<div class="btns"><button data-act="clear-tiles">Delete all saved maps</button></div>' : ''}`;
   },
   group() {
-    return `
+    return `${community.isAdmin && community.signedIn ? adminHtml() : ''}
       <h2>Group riding is coming</h2>
       <p>Seeing your group on the map and messaging them is the next big step for TrailLink.</p>
       <div class="card"><b>Already working in the background</b><p class="quiet">The engine that shares positions and messages over every available link, passes them along between riders, and warns when someone drops out of range is built and tested.</p></div>
@@ -537,6 +590,20 @@ $('#pane').addEventListener('click', e => {
   if (b.dataset.base) setBase(b.dataset.base as BaseMapId);
   if (b.dataset.colorby) { state.colorBy = b.dataset.colorby as ColorBy; store.set('colorBy', state.colorBy); applyColorBy(); renderPane(); }
   if (act === 'draw') startDrawing();
+  if (act === 'admin') { state.tab = 'group'; render(); }
+  if (act === 'admin-refresh') { state.admin.invited = ''; loadRiders(); renderPane(); }
+  if (b.dataset.invitesend) void sendInvite(b.dataset.invitesend);
+  if (b.dataset.invitecopy) void navigator.clipboard?.writeText(inviteText(b.dataset.invitecopy)).then(() => toast('Invite message copied.'), () => {});
+  if (b.dataset.role) {
+    const reviewer = b.dataset.reviewer === 'true';
+    state.admin.busy = true; renderPane();
+    community.adminSetRole(b.dataset.role, reviewer, false).then(() => toast(reviewer ? 'Now a reviewer.' : 'No longer a reviewer.'), (e: Error) => { state.admin.error = e.message; }).finally(loadRiders);
+  }
+  if (b.dataset.removerider) {
+    const r = state.admin.riders?.find(x => x.email === b.dataset.removerider);
+    if (r) sheet(`<h3>Remove ${esc(r.display_name ?? r.email)}?</h3><p>${r.joined_at ? `They'll be signed out within the hour and can't sign in again. Their ${r.ratings} rating${r.ratings === 1 ? '' : 's'} and ${r.trails} trail${r.trails === 1 ? '' : 's'} are deleted too.` : 'Their approval is cancelled, so they can\'t sign in.'}</p>
+      <div class="btns"><button data-close>Keep</button><button class="danger" data-act2="removerider" data-id="${esc(r.email)}">Remove</button></div>`);
+  }
   if (act === 'sync') void community.sync();
   if (act === 'signout') void community.signOut().then(() => { state.signin = null; renderPane(); });
   if (act === 'signin-back') { state.signin = state.signin ? { ...state.signin, sent: false, error: undefined } : null; renderPane(); }
@@ -565,6 +632,11 @@ $('#pane').addEventListener('submit', e => {
     community.sendCode(email, name).then(() => { state.signin = { email, sent: true, busy: false }; renderPane(); })
       .catch((err: Error) => { state.signin = { email, sent: false, busy: false, error: err.message }; renderPane(); });
   }
+  if (form.id === 'inviteform') {
+    const email = String(f.get('email') ?? '').trim().toLowerCase(), a = state.admin;
+    a.busy = true; a.error = ''; renderPane();
+    community.adminInvite(email).then(() => { a.invited = email; }, (err: Error) => { a.error = err.message; }).finally(loadRiders);
+  }
   if (form.id === 'codeform' && state.signin) {
     const si = state.signin; si.busy = true; renderPane();
     community.verifyCode(si.email, String(f.get('code') ?? '')).then(() => { state.signin = null; toast('Signed in. Your trails and ratings are now shared.'); renderPane(); })
@@ -589,6 +661,11 @@ $('#sheet').addEventListener('click', e => {
   if (b.dataset.unvote) { void vote(b.dataset.unvote, null); return; }
   if (b.dataset.vote && b.dataset.tid) { void vote(b.dataset.tid, Number(b.dataset.vote)); return; }
   if (b.dataset.act2 === 'deltrail' && b.dataset.id) { void community.deleteTrail(b.dataset.id).then(() => { closeSheet(); popup.remove(); refreshRiderTrails(); renderPane(); }); return; }
+  if (b.dataset.act2 === 'removerider' && b.dataset.id) {
+    const email = b.dataset.id; closeSheet(); state.admin.busy = true; renderPane();
+    community.adminRemove(email).then(() => { if (state.admin.invited === email) state.admin.invited = ''; toast('Rider removed.'); }, (e: Error) => { state.admin.error = e.message; }).finally(loadRiders);
+    return;
+  }
   if (b.dataset.act2 === 'confirm-clear') { void clearAllTiles().then(() => { closeSheet(); renderPane(); toast('Saved maps deleted.'); }); }
   if (b.dataset.act2 === 'sos-copy' && state.pos) { void navigator.clipboard?.writeText(`${state.pos.lat.toFixed(5)}, ${state.pos.lon.toFixed(5)}`).then(() => toast('Coordinates copied.'), () => {}); }
 });

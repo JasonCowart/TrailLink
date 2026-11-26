@@ -130,3 +130,4 @@ label.tg input { width: 24px; height: 24px; accent-color: var(--action); flex: n
 .gate-card { background: var(--paper); border-radius: 20px; padding: 24px; width: 100%; max-width: 420px; }
 .gate-logo { width: 64px; height: 64px; }
 .gate-card h1 { font: 700 34px/1 'Barlow Condensed', sans-serif; margin: 10px 0 6px; }
+.tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--line); color: inherit; vertical-align: middle; }

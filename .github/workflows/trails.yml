@@ -42,7 +42,7 @@ jobs:
             case "$st" in
               CO) name=colorado ;; UT) name=utah ;; AZ) name=arizona ;; NV) name=nevada ;; NM) name=new-mexico ;; WY) name=wyoming ;; ID) name=idaho ;; *) echo "unknown state $st"; exit 1 ;;
             esac
-            curl -sSfL -o "/tmp/$name.osm.pbf" "https://download.geofabrik.de/north-america/us/$name-latest.osm.pbf"
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 20 -o "/tmp/$name.osm.pbf" "https://download.geofabrik.de/north-america/us/$name-latest.osm.pbf"
             osmium tags-filter -O -o "/tmp/$name-ohv.osm.pbf" "/tmp/$name.osm.pbf" \
               w/highway=track w/atv=yes,designated,permissive w/ohv=yes,designated,permissive
             osmium export -O -f geojsonseq --geometry-types=linestring -o "/tmp/$name-ohv.geojsonseq" "/tmp/$name-ohv.osm.pbf"

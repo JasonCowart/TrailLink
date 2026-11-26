@@ -238,7 +238,7 @@ h3.withicon { display: flex; align-items: center; gap: 10px; }
 .row > .ricon { box-shadow: none; }
 #btn-report svg { display: block; margin-bottom: 1px; }
 /* Map pins: icon only, with a small pointer at the exact spot. Dashed ring = shared by another rider. */
-button.mpin { position: relative; padding: 0 0 7px; min-height: 0; border: 0; background: none; border-radius: 50%; cursor: pointer; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+button.mpin { padding: 0 0 7px; min-height: 0; border: 0; background: none; border-radius: 50%; cursor: pointer; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
 button.mpin .ricon { box-shadow: 0 0 0 2.5px #fff; }
 button.mpin::after { content: ''; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); border: 6px solid transparent; border-bottom: 0; border-top: 8px solid #fff; }
 button.mpin.shared .ricon { box-shadow: 0 0 0 2.5px #fff, 0 0 0 4.5px var(--c); outline: 2px dashed #fff; outline-offset: 3px; }

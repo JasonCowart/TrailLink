@@ -90,7 +90,9 @@ function fromMvum(p, kind) {
     yes(p.atv) && 'ATVs',
     yes(p.motorcycle) && 'Motorcycles',
   ].filter(Boolean);
+  const route = clean(p.id) ?? clean(p.rte_cn) ?? String(p.objectid);
   return {
+    tid: `USFS:${clean(p.securityid) ?? clean(p.adminorg) ?? ''}:${route}`,
     src: 'USFS', kind,
     name: clean(p.name) ? title(p.name) : undefined,
     num: clean(p.id),
@@ -111,7 +113,9 @@ function fromBlm(p, kind) {
   const explain = clean(p.OHV_DSGNTN_LIM_EXPLAIN);
   const utvNamed = allowed ? /UTV|SIDE|OHV|4WD|4X4|ALL/i.test(allowed) : false;
   const atvOnly = allowed ? /ATV|MOTORCYCLE|SINGLE/i.test(allowed) && !utvNamed : false;
+  const nm = clean(p.ROUTE_PRMRY_NM);
   return {
+    tid: nm ? `BLM:${clean(p.ADMIN_ST) ?? ''}:${nm.toUpperCase()}` : `BLM:${clean(p.GlobalID) ?? clean(p.Original_GlobalID) ?? p.OBJECTID}`,
     src: 'BLM', kind,
     name: clean(p.ROUTE_PRMRY_NM) ? title(p.ROUTE_PRMRY_NM) : undefined,
     num: clean(p.ROUTE_PLAN_ID),
@@ -127,6 +131,7 @@ function fromBlm(p, kind) {
 function fromOsm(p) {
   const access = (p.atv ?? p.ohv ?? p.motor_vehicle ?? p.access ?? '').toLowerCase();
   return {
+    tid: `OSM:${p['@id'] ?? ''}`,
     src: 'OSM', kind: p.highway === 'track' ? 'road' : 'trail',
     name: clean(p.name), num: clean(p.ref),
     utv: /^(no|private)$/.test(access) ? 'closed' : 'unknown',

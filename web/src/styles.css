@@ -248,9 +248,9 @@ button.mpin .hasphoto { position: absolute; right: 2px; top: 2px; width: 12px; h
 button.mpin .flash { position: absolute; left: 5px; top: 5px; width: 34px; height: 34px; border-radius: 50%; pointer-events: none; z-index: -1; }
 button.mpin .flash::before, button.mpin .flash::after { content: ''; position: absolute; inset: 0; border-radius: 50%; }
 button.mpin .flash::before { background: radial-gradient(circle, rgba(255,60,40,.95) 0 35%, rgba(255,60,40,0) 70%); transform: scale(2.1); animation: strobe 1.6s infinite; }
-button.mpin .flash::after { border: 3px solid #EF4444; animation: strobe-ring 1.6s infinite; }
+button.mpin .flash::after { border: 4px solid #EF4444; box-shadow: 0 0 6px #EF4444; animation: strobe-ring 1.6s infinite; }
 button.mpin.strobe .ricon { animation: strobe-tile 1.6s infinite; }
-@keyframes strobe { 0%, 100% { opacity: 0; } 4% { opacity: 1; } 10% { opacity: 0; } 16% { opacity: 1; } 22% { opacity: 0; } }
-@keyframes strobe-ring { 0% { transform: scale(1); opacity: .9; } 60% { transform: scale(2.4); opacity: 0; } 100% { opacity: 0; } }
-@keyframes strobe-tile { 0%, 22%, 100% { filter: none; } 4%, 16% { filter: brightness(1.35); } }
+@keyframes strobe { 0%, 30%, 100% { opacity: 0; } 3%, 9% { opacity: 1; } 12% { opacity: 0; } 16%, 22% { opacity: 1; } 25% { opacity: 0; } }
+@keyframes strobe-ring { 0% { transform: scale(1); opacity: 1; } 70% { transform: scale(2.6); opacity: 0; } 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes strobe-tile { 0%, 30%, 100% { filter: none; } 3%, 9%, 16%, 22% { filter: brightness(1.45); } 12%, 25% { filter: none; } }
 @media (prefers-reduced-motion: reduce) { button.mpin .flash { display: none; } button.mpin.strobe .ricon { animation: none; } }

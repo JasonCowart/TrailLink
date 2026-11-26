@@ -93,6 +93,7 @@ jobs:
             --no-tile-compression --drop-densest-as-needed --extend-zooms-if-still-dropping \
             --simplification=4 --name "TrailLink trails" data/out/trails.geojsonseq
           cp data/out/meta.json data/out/tiles/meta.json
+          cp data/out/overview.geojson data/out/tiles/overview.geojson
           echo "tiles: $(find data/out/tiles -name '*.pbf' | wc -l) files, $(du -sh data/out/tiles | cut -f1)"
 
       - name: Save on the trail-data branch

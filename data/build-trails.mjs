@@ -142,10 +142,25 @@ function fromOsm(p) {
 // ------------------------------------------------------------------ main
 const out = createWriteStream(`${OUT}trails.geojsonseq`);
 const counts = {};
+// Overview for zoomed-out maps: trails binned into ~5 km cells, one dot per cell with how many routes it holds.
+const CELL = 0.05;
+const cells = new Map();
+function midpoint(geometry) {
+  const line = geometry.type === 'MultiLineString' ? geometry.coordinates.reduce((a, b) => (b.length > a.length ? b : a), []) : geometry.coordinates;
+  return line?.length ? line[Math.floor(line.length / 2)] : null;
+}
 const emit = (geometry, props) => {
   for (const k of Object.keys(props)) if (props[k] === undefined || props[k] === false) delete props[k];
   out.write(JSON.stringify({ type: 'Feature', geometry, properties: props }) + '\n');
   counts[props.src] = (counts[props.src] ?? 0) + 1;
+  const m = midpoint(geometry);
+  if (m) {
+    const key = `${Math.floor(m[0] / CELL)}:${Math.floor(m[1] / CELL)}`;
+    const c = cells.get(key) ?? { x: 0, y: 0, n: 0, legal: 0 };
+    c.x += m[0]; c.y += m[1]; c.n++;
+    if (props.src !== 'OSM' && (props.utv === 'open' || props.utv === 'limited')) c.legal++;
+    cells.set(key, c);
+  }
 };
 
 for (const st of STATES) {
@@ -176,6 +191,15 @@ if (OSM_FILE && existsSync(OSM_FILE)) {
 }
 
 await new Promise(r => out.end(r));
+writeFileSync(`${OUT}overview.geojson`, JSON.stringify({
+  type: 'FeatureCollection',
+  features: [...cells.values()].map(c => ({
+    type: 'Feature',
+    properties: { n: c.n, legal: c.legal },
+    geometry: { type: 'Point', coordinates: [+(c.x / c.n).toFixed(4), +(c.y / c.n).toFixed(4)] },
+  })),
+}));
+console.log(`overview: ${cells.size} dots`);
 const meta = { built: new Date().toISOString(), states: STATES, counts, sources: {
   USFS: 'USDA Forest Service Motor Vehicle Use Map (EDW_MVUM_01)',
   BLM: 'BLM National GTLF Public Display (routes managed for public motorized use)',

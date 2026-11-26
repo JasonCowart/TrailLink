@@ -1530,7 +1530,7 @@ if (location.hash === '#debug') Object.assign(window, { tl: { map, community, st
 const SYNCED_SETTINGS = ['base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
 function applySettings(keys: string[]) {
   for (const k of keys) {
-    if (k === 'base') { const b = store.get<BaseMapId>('base', 'topo'); if (b !== state.base && BASE_MAPS.some(m => m.id === b)) setBase(b); }
+    if (k === 'base') { const b = store.get<BaseMapId>('base', 'topo'); if (b !== state.base && b in BASE_MAPS) setBase(b); }
     if (k === 'colorBy') { state.colorBy = store.get<ColorBy>('colorBy', 'access'); applyColorBy(); }
     if (k === 'trails') { state.trails = store.get('trails', true); for (const l of [...TRAIL_LAYERS, ...OVERVIEW_LAYERS]) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', state.trails ? 'visible' : 'none'); }
     if (k === 'rigMarks') { state.rigMarks = store.get('rigMarks', true); applyRigMarks(); }

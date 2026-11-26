@@ -73,7 +73,7 @@ function addOverlays() {
 map.on('style.load', addOverlays);
 
 // Tap a trail to see who manages it, which vehicles may use it, and when. A generous tap area for gloves.
-const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '300px', className: 'trail-popup' });
+const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '300px', className: 'trail-popup', anchor: 'top' });
 let popupProps: Record<string, string> | null = null;
 function ratingInfo(tid?: string) {
   return { mine: tid ? community.myRatings().get(tid) : undefined, score: tid ? community.scores().get(tid) : undefined, online: community.mode === 'online' };
@@ -98,6 +98,9 @@ map.on('click', e => {
   state.follow = false;
   popupProps = { ...(best.properties as Record<string, string>) };
   popup.setLngLat(e.lngLat).setHTML(popupHtml(popupProps)).addTo(map);
+  // Slide the map so the tapped spot sits near the top and the details box fits below it.
+  const h = map.getContainer().clientHeight;
+  if (e.point.y > h * 0.3) map.easeTo({ center: e.lngLat, offset: [0, -h * 0.32], duration: 350 });
 });
 // Buttons inside the popup.
 $('#map').addEventListener('click', e => {

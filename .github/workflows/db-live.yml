@@ -1,0 +1,29 @@
+name: Live database check
+# Confirms the web app can read the community database with its public (publishable) key.
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/db-live.yml', 'web/src/config.ts']
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read public views and tables
+        run: |
+          URL=$(grep -o "https://[a-z0-9]*\.supabase\.co" web/src/config.ts | head -1)
+          KEY=$(grep -o "sb_publishable_[A-Za-z0-9_-]*" web/src/config.ts | head -1)
+          fail=0
+          for path in "trail_scores?select=tid&limit=1" "rider_trails_public?select=id&limit=1" "ratings?select=tid&limit=1" "profiles?select=id&limit=1"; do
+            code=$(curl -s -o /tmp/out.json -w '%{http_code}' "$URL/rest/v1/$path" -H "apikey: $KEY")
+            echo "$path -> HTTP $code $(head -c 300 /tmp/out.json)"
+            [ "$code" = 200 ] || fail=1
+          done
+          # Anonymous writes must be refused by row-level security.
+          code=$(curl -s -o /tmp/out.json -w '%{http_code}' -X POST "$URL/rest/v1/ratings" -H "apikey: $KEY" -H 'content-type: application/json' -d '{"tid":"TEST","difficulty":5}')
+          echo "anonymous insert -> HTTP $code $(head -c 200 /tmp/out.json)"
+          case "$code" in 401|403) echo "anonymous write correctly refused" ;; *) echo "::error::anonymous write was not refused"; fail=1 ;; esac
+          auth=$(curl -s -o /tmp/out.json -w '%{http_code}' "$URL/auth/v1/settings" -H "apikey: $KEY")
+          echo "auth settings -> HTTP $auth $(head -c 400 /tmp/out.json)"
+          exit $fail

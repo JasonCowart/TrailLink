@@ -11,6 +11,7 @@ import { OnlineCommunity, type AdminRider, type GroupMember } from './online.ts'
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from './photos.ts';
+import { REPORTS, REPORT_TYPES, type ReportType } from './reports.ts';
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
 
 // ---------------------------------------------------------------- state
@@ -59,7 +60,7 @@ const map: MLMap = new maplibregl.Map({
   attributionControl: { compact: true },
   maxPitch: 60,
 });
-map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
+map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'top-left');
 
 function styleFor(id: BaseMapId) { return id === 'street' ? STREET_STYLE_URL : rasterStyle(id); }
 
@@ -641,9 +642,9 @@ const pinMarkers = new Map<string, maplibregl.Marker>();
 function drawPins() {
   for (const [id, m] of pinMarkers) if (!state.pins.find(p => p.id === id)) { m.remove(); pinMarkers.delete(id); }
   for (const p of state.pins) {
-    const label = `${p.photos?.length ? '📷 ' : ''}${p.note || PIN_NAMES[p.kind]}`;
+    const label = `${p.photos?.length ? '📷 ' : ''}${pinTitle(p, true)}`;
     const old = pinMarkers.get(p.id);
-    if (old) { if (old.getElement().textContent === label) continue; old.remove(); }
+    if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().textContent === label) continue; old.remove(); }
     const el = document.createElement('div');
     el.className = `pin ${p.kind}`;
     el.textContent = label;
@@ -651,14 +652,85 @@ function drawPins() {
     pinMarkers.set(p.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map));
   }
 }
-const PIN_NAMES = { regroup: 'Regroup point', hazard: 'Hazard', note: 'Note', photo: 'Photo' } as const;
-function addPin(kind: Pin['kind'], note?: string, photos?: string[]) {
-  if (!state.pos) { toast('Waiting for a GPS fix.'); return null; }
-  const pin: Pin = { id: String(Date.now()), kind, lat: state.pos.lat, lon: state.pos.lon, t: Date.now(), note: note?.trim() || undefined, photos };
+const PIN_NAMES = { regroup: 'Regroup point', hazard: 'Hazard', note: 'Note', photo: 'Photo', report: 'Report' } as const;
+/** Pin name; with icon=true, report pins start with their icon (for the map). */
+function pinTitle(p: Pin, icon = false) {
+  const r = p.kind === 'report' && p.report ? REPORTS[p.report as ReportType] : null;
+  const base = p.note || (r ? r.label : PIN_NAMES[p.kind]);
+  return r && icon ? `${r.icon} ${base}` : base;
+}
+/** Drop a pin where you are, or at a spot picked on the map. */
+function addPin(kind: Pin['kind'], note?: string, photos?: string[], at?: { lat: number; lon: number }, report?: ReportType) {
+  const where = at ?? state.pos;
+  if (!where) { toast('Waiting for a GPS fix. Or use "Place on map".'); return null; }
+  const pin: Pin = { id: String(Date.now()), kind, lat: where.lat, lon: where.lon, t: Date.now(), note: note?.trim() || undefined, photos, report };
   state.pins.unshift(pin);
   store.savePins(state.pins); drawPins(); renderPane();
-  toast(`${PIN_NAMES[kind]} saved here`);
+  toast(`${pinTitle(pin, true)} pinned${at ? '' : ' here'}`);
   return pin;
+}
+
+// ---------------------------------------------------------------- placing and moving pins: slide the map under a crosshair
+type Place = { mode: 'new'; report?: ReportType } | { mode: 'move'; pinId: string };
+let place: Place | null = null;
+function startPlacing(p: Place, center?: [number, number]) {
+  closeSheet(); popup.remove(); place = p; state.follow = false;
+  if (center) map.easeTo({ center, zoom: Math.max(map.getZoom(), 15) });
+  refreshPlaceBar();
+}
+function refreshPlaceBar() {
+  $('#placebar')?.remove(); $('#crosshair')?.remove();
+  if (!place) return;
+  const pin = place.mode === 'move' ? state.pins.find(x => x.id === (place as { pinId: string }).pinId) : null;
+  const what = pin ? pinTitle(pin, true) : place.mode === 'new' && place.report ? `${REPORTS[place.report].icon} ${REPORTS[place.report].label}` : 'pin';
+  $('#mapwrap').insertAdjacentHTML('beforeend', `<div id="crosshair" aria-hidden="true"></div>
+    <div id="placebar"><b>${place.mode === 'move' ? `Move ${esc(what)}` : `Place ${esc(what)}`}</b><span>Slide the map until the crosshair is on the spot.</span>
+    <div class="btns"><button data-place="cancel">Cancel</button><button class="primary" data-place="ok">${place.mode === 'move' ? 'Save new spot' : 'Drop pin here'}</button></div></div>`);
+}
+$('#mapwrap').addEventListener('click', e => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('#placebar button'); if (!b || !place) return;
+  const p = place; place = null; refreshPlaceBar();
+  if (b.dataset.place !== 'ok') return;
+  const c = map.getCenter(), at = { lat: c.lat, lon: c.lng };
+  if (p.mode === 'move') {
+    const pin = state.pins.find(x => x.id === p.pinId); if (!pin) return;
+    pin.lat = at.lat; pin.lon = at.lon; store.savePins(state.pins); drawPins(); renderPane(); toast('Pin moved.');
+  } else if (p.report) reported(addPin('report', undefined, undefined, at, p.report));
+  else pinChooser(at);
+});
+
+/** What kind of pin to drop at a picked spot. */
+function pinChooser(at: { lat: number; lon: number }) {
+  pendingAt = at;
+  sheet(`<h3>What's here?</h3>
+    <div class="btns"><button class="primary" data-act2="pinat" data-kind="regroup">Regroup</button><button data-act2="pinat" data-kind="note">Note…</button></div>
+    ${reportGridHtml('pinat')}
+    <div class="btns"><button data-close>Cancel</button></div>`);
+}
+let pendingAt: { lat: number; lon: number } | null = null;
+let pendingNoteAt: { lat: number; lon: number } | null = null;
+function noteSheet(at?: { lat: number; lon: number }) {
+  pendingNoteAt = at ?? null;
+  sheet(`<h3>Add a note ${at ? 'there' : 'here'}</h3><form id="noteform"><input id="notetext" maxlength="60" placeholder="e.g. Water crossing, go slow" style="width:100%;min-height:48px;border:1px solid var(--line);border-radius:12px;padding:0 12px;font-size:16px"><div class="btns"><button class="primary">Save note</button><button type="button" data-close>Cancel</button></div></form>`);
+}
+
+// ---------------------------------------------------------------- quick trail reports (the map's Report button)
+function reportGridHtml(act: string) {
+  return `<div class="reportgrid">${REPORT_TYPES.map(t => `<button data-act2="${act}" data-report="${t}"><span>${REPORTS[t].icon}</span>${REPORTS[t].label}</button>`).join('')}</div>`;
+}
+function openReport() {
+  sheet(`<h3>Report on the trail</h3>
+    <p class="quiet">Tap one to pin it ${state.pos ? 'where you are' : '(waiting for GPS: you can place it on the map)'}.</p>
+    ${reportGridHtml('report')}
+    <div class="btns"><button data-act2="reportplace">Place on map instead</button><button data-close>Cancel</button></div>`, 'report');
+}
+/** After a report: quick follow-ups (photo, move) without getting in the way. */
+function reported(pin: Pin | null) {
+  if (!pin) return;
+  sheet(`<h3>${esc(pinTitle(pin, true))} pinned</h3>
+    <p class="quiet">Add a photo or a note, or move the pin if it's not quite right.</p>
+    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, '📷 Add photo')}<button data-act2="pinnote" data-id="${pin.id}">Add note</button></div>
+    <div class="btns"><button data-act2="movepin" data-id="${pin.id}">Move pin</button><button data-act2="undopin" data-id="${pin.id}">Undo</button><button class="primary" data-close>Done</button></div>`);
 }
 
 // ---------------------------------------------------------------- pin photos (kept on this phone)
@@ -748,11 +820,11 @@ function looseSheet(id: string) {
 function pinSheet(pinId: string) {
   const pin = state.pins.find(p => p.id === pinId); if (!pin) return;
   const when = new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  sheet(`<div data-pinsheet="${pin.id}"><h3>${esc(pin.note || PIN_NAMES[pin.kind])}</h3>
+  sheet(`<div data-pinsheet="${pin.id}"><h3>${esc(pinTitle(pin, true))}</h3>
     <p class="quiet">${when} · ${pin.lat.toFixed(5)}, ${pin.lon.toFixed(5)}</p>
     ${(pin.photos ?? []).map(ph => `<figure class="pinphoto"><img data-photo="${ph}" alt="Pin photo">
       <div class="btns"><button class="small" data-act2="savephoto" data-id="${ph}" data-t="${pin.t}">Save to Photos</button><button class="small" data-act2="unpinphoto" data-pin="${pin.id}" data-id="${ph}">Take off pin</button></div></figure>`).join('') || '<p class="quiet">No photos yet.</p>'}
-    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, '📷 Add photo')}<button class="primary" data-close>Done</button></div></div>`);
+    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, '📷 Add photo')}<button data-act2="movepin" data-id="${pin.id}">Move pin</button><button class="primary" data-close>Done</button></div></div>`);
   hydratePhotos($('#sheet-body'));
 }
 
@@ -876,12 +948,13 @@ const views: Record<Tab, () => string> = {
     const p = state.pos;
     return `
       <h2>Drop a pin where you are</h2>
-      <div class="btns"><button class="primary" data-act="regroup">Regroup</button><button class="danger" data-act="hazard">Hazard</button><button data-act="note">Note…</button>${photoInput('data-newphotopin', '📷 Photo')}</div>
+      <div class="btns"><button class="primary" data-act="regroup">Regroup</button><button class="danger" data-act="report">Report…</button><button data-act="note">Note…</button>${photoInput('data-newphotopin', '📷 Photo')}</div>
+      <div class="btns"><button data-act="placepin">📍 Place a pin on the map</button></div>
       ${state.pins.length ? state.pins.map(pin => {
         const d = p ? `${(distanceM(p, pin) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(p, pin))}` : '';
         const ph = pin.photos ?? [];
-        return `<div class="pinrow"><div class="row"><div class="grow"><b>${esc(pin.note || PIN_NAMES[pin.kind])}</b><div class="quiet">${d}${d ? ' · ' : ''}${new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div></div>
-          <button data-goto="${pin.id}" aria-label="Show on map">Show</button><button data-delpin="${pin.id}" aria-label="Delete pin">✕</button></div>
+        return `<div class="pinrow"><div class="row"><div class="grow"><b>${esc(pinTitle(pin, true))}</b><div class="quiet">${d}${d ? ' · ' : ''}${new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div></div>
+          <button data-goto="${pin.id}" aria-label="Show on map">Show</button><button data-movepin="${pin.id}" aria-label="Move pin">Move</button><button data-delpin="${pin.id}" aria-label="Delete pin">✕</button></div>
           <div class="thumbs">${ph.map(id => `<button class="thumb" data-openpin="${pin.id}" aria-label="View photo"><img data-photo="${id}" alt=""></button>`).join('')}${photoInput(`data-addphoto="${pin.id}"`, ph.length ? '+' : '📷 Add photo', ph.length ? 'thumb add' : 'small')}</div></div>`;
       }).join('') : '<p class="quiet">No pins yet. Pins and their photos stay on this phone and work offline.</p>'}
       ${loosePhotosHtml()}`;
@@ -920,7 +993,7 @@ function paneClick(e: Event) {
   else if (act === 'stop') stopRecording();
   else if (act === 'regroup') addPin('regroup');
   else if (act === 'hazard') addPin('hazard');
-  else if (act === 'note') sheet(`<h3>Add a note here</h3><form id="noteform"><input id="notetext" maxlength="60" placeholder="e.g. Water crossing, go slow" style="width:100%;min-height:48px;border:1px solid var(--line);border-radius:12px;padding:0 12px;font-size:16px"><div class="btns"><button class="primary">Save note</button><button type="button" data-close>Cancel</button></div></form>`);
+  else if (act === 'note') noteSheet();
   else if (act === 'save-area') void saveVisibleArea();
   else if (act === 'cancel-dl') state.download?.ctrl.abort();
   else if (act === 'clear-tiles') sheet(`<h3>Delete all saved maps?</h3><p>You'll need signal to see maps until you save areas again.</p><div class="btns"><button class="danger" data-act2="confirm-clear">Delete</button><button data-close>Keep them</button></div>`);
@@ -959,6 +1032,9 @@ function paneClick(e: Event) {
   if (b.dataset.gpx) downloadGpx(b.dataset.gpx);
   if (b.dataset.delpin) { const pin = state.pins.find(p => p.id === b.dataset.delpin); if (pin) { removePin(pin.id); if (pin.photos?.length) toast(`Pin deleted. Its photo${pin.photos.length === 1 ? ' is' : 's are'} kept under "Photos from deleted pins".`); } }
   if (b.dataset.openpin) pinSheet(b.dataset.openpin);
+  if (b.dataset.movepin) { const pin = state.pins.find(p => p.id === b.dataset.movepin); if (pin) startPlacing({ mode: 'move', pinId: pin.id }, [pin.lon, pin.lat]); }
+  if (act === 'report') openReport();
+  if (act === 'placepin') startPlacing({ mode: 'new' });
   if (b.dataset.loose) looseSheet(b.dataset.loose);
   if (b.dataset.goto) { const p = state.pins.find(x => x.id === b.dataset.goto); if (p) { state.follow = false; map.flyTo({ center: [p.lon, p.lat], zoom: 15 }); } }
   if (b.dataset.forget) { forgetArea(b.dataset.forget); renderPane(); }
@@ -1020,7 +1096,12 @@ $('#sheet').addEventListener('submit', e => {
     const v = community.saveVehicle(vehicleFromForm(f));
     closeSheet(); afterGarageChange(); toast(`Saved ${v.nickname}: ${rigClass(rigScore(v)).toLowerCase()} (${rigScore(v)}/10).`);
   }
-  if ((e.target as HTMLElement).id === 'noteform') { addPin('note', $<HTMLInputElement>('#notetext').value); closeSheet(); }
+  if ((e.target as HTMLElement).id === 'noteform') { const at = pendingNoteAt ?? undefined; pendingNoteAt = null; addPin('note', $<HTMLInputElement>('#notetext').value, undefined, at); closeSheet(); }
+  if ((e.target as HTMLElement).id === 'pinnoteform') {
+    const f = e.target as HTMLFormElement, pin = state.pins.find(p => p.id === f.dataset.id);
+    if (pin) { pin.note = String(new FormData(f).get('note') ?? '').trim() || undefined; store.savePins(state.pins); drawPins(); renderPane(); }
+    closeSheet();
+  }
   if ((e.target as HTMLElement).id === 'trailform' && pendingCoords) {
     const f = new FormData(e.target as HTMLFormElement);
     community.setName(String(f.get('by') ?? ''));
@@ -1035,6 +1116,18 @@ $('#sheet').addEventListener('click', e => {
   if (b.dataset.unvote) { void vote(b.dataset.unvote, null); return; }
   if (b.dataset.vote && b.dataset.tid) { void vote(b.dataset.tid, Number(b.dataset.vote)); return; }
   if (b.dataset.act2 === 'deltrail' && b.dataset.id) { void community.deleteTrail(b.dataset.id).then(() => { closeSheet(); popup.remove(); refreshRiderTrails(); renderPane(); }); return; }
+  if (b.dataset.act2 === 'report' && b.dataset.report) { if (!state.pos) { startPlacing({ mode: 'new', report: b.dataset.report as ReportType }); return; } closeSheet(); reported(addPin('report', undefined, undefined, undefined, b.dataset.report as ReportType)); return; }
+  if (b.dataset.act2 === 'reportplace') { startPlacing({ mode: 'new' }); return; }
+  if (b.dataset.act2 === 'pinat' && pendingAt) {
+    const at = pendingAt; pendingAt = null; closeSheet();
+    if (b.dataset.report) reported(addPin('report', undefined, undefined, at, b.dataset.report as ReportType));
+    else if (b.dataset.kind === 'note') noteSheet(at);
+    else addPin('regroup', undefined, undefined, at);
+    return;
+  }
+  if (b.dataset.act2 === 'movepin' && b.dataset.id) { const pin = state.pins.find(p => p.id === b.dataset.id); if (pin) startPlacing({ mode: 'move', pinId: pin.id }, [pin.lon, pin.lat]); return; }
+  if (b.dataset.act2 === 'undopin' && b.dataset.id) { removePin(b.dataset.id); closeSheet(); toast('Report removed.'); return; }
+  if (b.dataset.act2 === 'pinnote' && b.dataset.id) { const pin = state.pins.find(p => p.id === b.dataset.id); if (pin) sheet(`<h3>Add a note</h3><form id="pinnoteform" data-id="${pin.id}" class="form"><label>Note<input name="note" maxlength="60" value="${esc(pin.note ?? '')}" placeholder="e.g. Big pine across the trail, go around left"></label><div class="btns"><button type="button" data-close>Cancel</button><button class="primary">Save</button></div></form>`); return; }
   if (b.dataset.act2 === 'savefresh') { const files = pendingLibrary; pendingLibrary = []; closeSheet(); void libraryResult(files); return; }
   if (b.dataset.act2 === 'savephoto' && b.dataset.id) { const f = photoFile(b.dataset.id, Number(b.dataset.t) || Date.now()); if (f) void libraryResult([f]); else toast('Photo still loading. Try again.'); return; }
   if (b.dataset.act2 === 'unpinphoto' && b.dataset.pin && b.dataset.id) { unpinPhoto(b.dataset.pin, b.dataset.id); return; }
@@ -1055,6 +1148,7 @@ $('#sheet').addEventListener('click', e => {
 $('#btn-layers').addEventListener('click', () => openPanel('layers'));
 $('#btn-base').addEventListener('click', () => openPanel('basemap'));
 $('#btn-legend').addEventListener('click', () => openPanel('legend'));
+$('#btn-report').addEventListener('click', openReport);
 $('#btn-riders').addEventListener('click', () => { openPanel('riders'); void community.refreshGroup(); });
 $('#btn-center').addEventListener('click', () => {
   state.follow = true; $('#btn-center').classList.add('active');

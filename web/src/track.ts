@@ -2,7 +2,7 @@
 import { distanceM } from '../../src/core/geo.ts';
 
 export interface Pt { lat: number; lon: number; t: number; alt?: number }
-export interface Pin { id: string; kind: 'regroup' | 'hazard' | 'note' | 'photo'; lat: number; lon: number; t: number; note?: string; photos?: string[] }
+export interface Pin { id: string; kind: 'regroup' | 'hazard' | 'note' | 'photo' | 'report'; lat: number; lon: number; t: number; note?: string; photos?: string[]; report?: string }
 export interface Track { id: string; name: string; points: Pt[]; startedAt: number; endedAt?: number }
 
 const load = <T>(k: string, d: T): T => { try { return JSON.parse(localStorage.getItem(k) ?? '') as T; } catch { return d; } };

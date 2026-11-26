@@ -42,7 +42,11 @@ do $$ begin
   if (select created_by from rider_trails_public where name = 'Test loop') <> 'Jason' then raise exception 'creator name missing'; end if;
 end $$;
 -- A rider can't make themselves a reviewer.
-update profiles set is_reviewer = true where id = auth.uid();
-do $$ begin if (select is_reviewer from profiles where display_name = 'Dean') then raise exception 'rider made self reviewer'; end if; end $$;
+do $$ begin
+  begin
+    update profiles set is_reviewer = true where id = auth.uid();
+    raise exception 'rider made self reviewer';
+  exception when insufficient_privilege then null; end;
+end $$;
 reset role;
 select 'ALL DATABASE CHECKS PASSED' as result;

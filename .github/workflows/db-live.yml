@@ -28,6 +28,14 @@ jobs:
           auth=$(curl -s -o /tmp/out.json -w '%{http_code}' "$URL/auth/v1/settings" -H "apikey: $KEY")
           echo "auth settings -> HTTP $auth $(head -c 400 /tmp/out.json)"
           exit $fail
+      - name: Uninvited email is turned away
+        run: |
+          URL=$(grep -o "https://[a-z0-9]*\.supabase\.co" web/src/config.ts | head -1)
+          KEY=$(grep -o "sb_publishable_[A-Za-z0-9_-]*" web/src/config.ts | head -1)
+          code=$(curl -s -o /tmp/out.json -w '%{http_code}' -X POST "$URL/auth/v1/otp" -H "apikey: $KEY" -H 'content-type: application/json' \
+            -d '{"email":"traillink-uninvited-check@example.com","create_user":true}')
+          echo "uninvited sign-in -> HTTP $code $(head -c 300 /tmp/out.json)"
+          case "$code" in 4*) echo "uninvited email refused";; *) echo "::error::uninvited email was not refused"; exit 1;; esac
       - name: Community activity (counts only)
         run: |
           URL=$(grep -o "https://[a-z0-9]*\.supabase\.co" web/src/config.ts | head -1)

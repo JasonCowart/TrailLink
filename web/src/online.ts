@@ -334,7 +334,7 @@ export class OnlineCommunity implements Community {
       op.k === 'rate' ? await rating(op.v ?? null)
       : op.k === 'vehicle' ? await this.sb.from('vehicles').upsert({
           id: op.v.id, nickname: op.v.nickname, make: op.v.make || null, model: op.v.model || null, year: op.v.year ?? null, width_in: op.v.widthIn,
-          tire_in: op.v.tireIn, lift_in: op.v.liftIn, lockers: op.v.lockers, winch: op.v.winch, skids: op.v.skids, sliders: op.v.sliders, updated_at: op.v.updatedAt,
+          tire_in: op.v.tireIn, lift_in: op.v.liftIn, lockers: op.v.lockers, winch: op.v.winch, skids: op.v.skids, sliders: op.v.sliders, color: op.v.color ?? null, updated_at: op.v.updatedAt,
         }, { onConflict: 'id' })
       : op.k === 'delvehicle' ? await this.sb.from('vehicles').delete().eq('id', op.id)
       : op.k === 'unrate' ? await this.sb.from('ratings').delete().eq('tid', op.tid).eq('rider_id', uid)
@@ -366,7 +366,7 @@ export class OnlineCommunity implements Community {
     const remote: Vehicle[] = rows.map(r => ({
       id: String(r.id), nickname: String(r.nickname), make: String(r.make ?? ''), model: String(r.model ?? ''), year: r.year == null ? undefined : Number(r.year),
       widthIn: Number(r.width_in) as Vehicle['widthIn'], tireIn: Number(r.tire_in), liftIn: Number(r.lift_in), lockers: r.lockers as Vehicle['lockers'],
-      winch: !!r.winch, skids: !!r.skids, sliders: !!r.sliders, updatedAt: String(r.updated_at),
+      winch: !!r.winch, skids: !!r.skids, sliders: !!r.sliders, color: (r.color as string) ?? undefined, updatedAt: String(r.updated_at),
     }));
     const local = new Map(this.vehicles.map(v => [v.id, v]));
     // The database's list, except vehicles with changes still waiting to upload (the phone's copy wins for those).

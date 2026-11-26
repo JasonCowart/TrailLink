@@ -202,3 +202,13 @@ details.cleared .row { opacity: .7; }
 #installbar button { min-height: 40px; padding: 0 10px; flex: none; }
 #installbar button[data-install="no"] { border: 0; background: none; padding: 0 6px; }
 ol.steps { padding-left: 22px; } ol.steps li { margin: 6px 0; }
+.vbadge { width: 20px; height: 20px; border-radius: 50%; background: var(--c); flex: none; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(0,0,0,.25); display: inline-block; vertical-align: middle; margin-right: 4px; }
+fieldset.colors { border: 0; padding: 0; margin: 4px 0; display: flex; flex-wrap: wrap; gap: 10px; }
+fieldset.colors legend { font-weight: 700; font-size: 14px; padding: 0; margin-bottom: 6px; }
+.swatch { position: relative; width: 40px; height: 40px; display: grid !important; place-items: center; cursor: pointer; }
+.swatch input[type="radio"] { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; min-height: 0; }
+.swatch span { width: 36px; height: 36px; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 1px rgba(0,0,0,.2); display: grid; place-items: center; color: var(--quiet); font-size: 14px; }
+.swatch.none span { background: var(--paper); border: 1px dashed var(--quiet); }
+.swatch input[type="radio"]:checked + span, .swatch.custom:has(input[type="radio"]:checked) input[type="color"] { outline: 3px solid var(--ink); outline-offset: 2px; }
+.swatch.custom input[type="color"] { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; min-height: 0; background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); }
+.swatch.custom input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; } .swatch.custom input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 50%; }

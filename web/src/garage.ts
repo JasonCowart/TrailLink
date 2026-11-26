@@ -18,8 +18,13 @@ export interface Vehicle {
   winch: boolean;
   skids: boolean;
   sliders: boolean;
+  /** Badge color the rider picked, e.g. #DC2626. */
+  color?: string;
   updatedAt: string;
 }
+
+/** Badge colors to pick from (a color picker covers anything else). */
+export const BADGE_COLORS = ['#DC2626', '#EA580C', '#F59E0B', '#16A34A', '#0D9488', '#2563EB', '#7C3AED', '#DB2777', '#1D221D', '#6B7280', '#FFFFFF', '#92400E'];
 
 export const WIDTHS: { v: Width; label: string }[] = [
   { v: 50, label: '50" or less (trail models, ATVs)' },

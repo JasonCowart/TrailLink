@@ -5,7 +5,7 @@ import type { FeatureCollection, Point } from 'geojson';
 import './styles.css';
 import { BASE_MAPS, MVUM_TILES, STREET_STYLE_URL, TRAIL_MAXZOOM, TRAIL_TILES, rasterStyle, type BaseMapId } from './maps.ts';
 import { COLORED_LAYERS, OVERVIEW_LAYERS, TRAIL_LAYERS, difficultyLegendHtml, legendHtml, rateSheetHtml, ratingHtml, rigMarkerImage, rigMarkerLayers, trailColor, trailPopupHtml, type ColorBy, type RatingInfo } from './trails.ts';
-import { LIFTS, LOCKERS, TIRE_SIZES, WIDTHS, bandShift, forecast, rigClass, rigScore, vehicleSummary, vehicleTitle, type Vehicle } from './garage.ts';
+import { BADGE_COLORS, LIFTS, LOCKERS, TIRE_SIZES, WIDTHS, bandShift, forecast, rigClass, rigScore, vehicleSummary, vehicleTitle, type Vehicle } from './garage.ts';
 import { VEHICLE_FIT, lengthMiles, levelOf, LEVELS, stepColor, type RiderTrail, type VehicleFit } from './community.ts';
 import { OnlineCommunity, type AdminRider, type GroupMember, type SharedPin } from './online.ts';
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
@@ -213,7 +213,7 @@ function openRateSheet(tid: string) {
   const vs = community.garage(), v = community.activeVehicle();
   const rigLine = !v ? '<p class="quiet">Tip: add your vehicle in the Garage tab so your rating helps riders with a similar setup.</p>'
     : vs.length > 1 ? `<label class="rigpick">Rode it in <select id="ratevehicle">${vs.map(x => `<option value="${x.id}" ${x.id === v.id ? 'selected' : ''}>${esc(x.nickname)} (${rigClass(rigScore(x)).toLowerCase()})</option>`).join('')}</select></label>`
-    : `<p class="quiet">Rode it in your <b>${esc(v.nickname)}</b> (${rigClass(rigScore(v)).toLowerCase()}, ${rigScore(v)}/10).</p>`;
+    : `<p class="quiet">Rode it in your ${badge(v.color)}<b>${esc(v.nickname)}</b> (${rigClass(rigScore(v)).toLowerCase()}, ${rigScore(v)}/10).</p>`;
   sheet(rateSheetHtml(tid, title, community.myRatings().get(tid), rigLine));
 }
 async function vote(tid: string, n: number | null) {
@@ -326,7 +326,7 @@ function garageHtml(): string {
   return `<h2>Your garage</h2>
     <p class="quiet">Your setup changes how hard a trail feels. Ratings record the rig you rode, and trails show a forecast for yours.</p>
     ${vs.map(v => { const sc = rigScore(v), on = v.id === active?.id, open = state.openVehicles.has(v.id); return `<div class="vehicle${on ? ' on' : ''}">
-      <button class="vhead" data-togglevehicle="${v.id}" aria-expanded="${open}"><b>${esc(v.nickname)}</b>${on ? ' <span class="tag">Riding</span>' : ''}<span class="chev" aria-hidden="true">${open ? '▴' : '▾'}</span></button>
+      <button class="vhead" data-togglevehicle="${v.id}" aria-expanded="${open}">${badge(v.color)}<b>${esc(v.nickname)}</b>${on ? ' <span class="tag">Riding</span>' : ''}<span class="chev" aria-hidden="true">${open ? '▴' : '▾'}</span></button>
       ${open ? `<div class="vbody">
         ${vehicleTitle(v) !== v.nickname ? `<div><b>${esc(vehicleTitle(v).slice(v.nickname.length + 3))}</b></div>` : ''}
         <div class="quiet">${esc(vehicleSummary(v))}</div>
@@ -336,6 +336,8 @@ function garageHtml(): string {
     <div class="btns"><button class="${vs.length ? '' : 'primary'}" data-act="addvehicle">Add a vehicle</button></div>`;
 }
 
+/** A round color badge for a vehicle (nothing if no color was picked). */
+const badge = (color?: string) => (color ? `<span class="vbadge" style="--c:${color}" aria-hidden="true"></span>` : '');
 function vehicleForm(v?: Vehicle) {
   const opt = <T,>(items: { v: T; label: string }[], cur: T) => items.map(i => `<option value="${i.v}" ${i.v === cur ? 'selected' : ''}>${i.label}</option>`).join('');
   const x: Vehicle = v ?? { id: '', nickname: '', make: '', model: '', widthIn: 64, tireIn: 28, liftIn: 0, lockers: 'none', winch: false, skids: false, sliders: false, updatedAt: '' };
@@ -348,6 +350,11 @@ function vehicleForm(v?: Vehicle) {
         <label>Make<input name="make" maxlength="40" value="${esc(x.make)}" placeholder="Polaris"></label>
         <label>Model<input name="model" maxlength="60" value="${esc(x.model)}" placeholder="RZR Pro R"></label>
       </div>
+      <fieldset class="colors"><legend>Badge color</legend>
+        ${BADGE_COLORS.map(c => `<label class="swatch" style="--c:${c}" title="${c}"><input type="radio" name="color" value="${c}" ${(x.color ?? '').toUpperCase() === c ? 'checked' : ''}><span></span></label>`).join('')}
+        <label class="swatch custom" title="Pick any color"><input type="radio" name="color" value="custom" ${x.color && !BADGE_COLORS.includes(x.color.toUpperCase()) ? 'checked' : ''}><input type="color" name="customColor" value="${x.color && !BADGE_COLORS.includes(x.color.toUpperCase()) ? x.color : '#E8501A'}" aria-label="Any color"></label>
+        <label class="swatch none" title="No badge"><input type="radio" name="color" value="" ${x.color ? '' : 'checked'}><span>✕</span></label>
+      </fieldset>
       <label>Width<select name="widthIn">${opt(WIDTHS, x.widthIn)}</select></label>
       <div class="cols2">
         <label>Tire size<select name="tireIn">${opt(TIRE_SIZES.map(n => ({ v: n, label: `${n}"` })), x.tireIn)}</select></label>
@@ -369,6 +376,7 @@ function vehicleFromForm(f: FormData): Omit<Vehicle, 'id' | 'updatedAt'> & { id?
     make: String(f.get('make') ?? '').trim(), model: String(f.get('model') ?? '').trim(), year: year >= 1980 && year <= 2100 ? year : undefined,
     widthIn: Number(f.get('widthIn')) as Vehicle['widthIn'], tireIn: Number(f.get('tireIn')), liftIn: Number(f.get('liftIn')),
     lockers: f.get('lockers') as Vehicle['lockers'], winch: f.has('winch'), skids: f.has('skids'), sliders: f.has('sliders'),
+    color: (() => { const c = String(f.get('color') ?? ''); const v = c === 'custom' ? String(f.get('customColor') ?? '') : c; return /^#[0-9a-f]{6}$/i.test(v) ? v.toUpperCase() : undefined; })(),
   };
 }
 function updateRigPreview() {

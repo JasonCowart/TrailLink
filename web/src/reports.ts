@@ -5,7 +5,7 @@ export const REPORTS = {
   rocks:   { label: 'Rockslide', color: '#78716C', path: '<path d="M3 20 6 13l5-2 3 3-1 6z"/><path d="M13 20l2-5 4-1 2 6z"/><path d="M15 4l1.5 1.5M19 7l1 1M12 6l1 1"/>' },
   washout: { label: 'Washout', color: '#B45309', path: '<path d="M3 8h6M15 8h6M3 16h6M15 16h6"/><path d="M11 5l2 3-2 3 2 3-2 3 2 3"/>' },
   water:   { label: 'Deep water', color: '#2563EB', path: '<path d="M3 10c2-2 4 2 6 0s4 2 6 0 4 2 6 0"/><path d="M3 15c2-2 4 2 6 0s4 2 6 0 4 2 6 0"/><path d="M3 20c2-2 4 2 6 0s4 2 6 0 4 2 6 0"/>' },
-  mud:     { label: 'Deep mud', color: '#92400E', path: '<path d="M6 14a6 6 0 0 1 12 0"/><path d="M9.6 14a2.4 2.4 0 0 1 4.8 0"/><path d="M2 15c2.5-2 4.5 2 7 0s4.5 2 7 0 4.5 2 6 0"/><path d="M4 19.5c2-1.5 4 1.5 6 0s4 1.5 6 0 3 1.5 4 0"/><path d="M4.5 9 3 7M19.5 9 21 7M12 5.5V3.5"/>' },
+  mud:     { label: 'Deep mud', color: '#92400E', path: '<path d="M3 12.5h17l-2.5-5H8.5l-3 5"/><path d="M5.5 15.5a2.5 2.5 0 0 1 5 0M13.5 15.5a2.5 2.5 0 0 1 5 0"/><path d="M2 16.5c2.5-1.5 4.5 1.5 7 0s4.5 1.5 7 0 4 1.5 6 0"/><path d="M4 20.5c2-1.2 4 1.2 6 0s4 1.2 6 0"/>' },
   snow:    { label: 'Snow / ice', color: '#0284C7', path: '<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9"/><path d="M9.5 4.5 12 6l2.5-1.5M9.5 19.5 12 18l2.5 1.5"/>' },
   closed:  { label: 'Trail closed', color: '#9F1239', path: '<rect x="3" y="8" width="18" height="6" rx="1"/><path d="M8 8l-4 6M14 8l-4 6M20 8l-4 6"/><path d="M6 14v6M18 14v6"/>' },
   gate:    { label: 'Gate locked', color: '#475569', path: '<path d="M3 20V7M3 9h10M3 17h10M6.5 9v8M10 9v8"/><rect x="14" y="12" width="7" height="6" rx="1"/><path d="M15.5 12v-1.5a2 2 0 0 1 4 0V12"/>' },

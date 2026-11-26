@@ -25,7 +25,7 @@ const state = {
   signin: null as null | { email: string; sent: boolean; busy: boolean; error?: string },
   admin: { riders: null as AdminRider[] | null, busy: false, error: '', invited: '' },
   rigMarks: store.get('rigMarks', true),
-  panel: null as null | 'layers' | 'basemap',
+  panel: null as null | 'layers' | 'basemap' | 'legend',
   trailMeta: null as null | { built: string; counts: Record<string, number> },
   follow: true,
   pos: null as null | { lat: number; lon: number; acc: number; alt?: number; speed?: number; heading?: number; t: number },
@@ -235,23 +235,42 @@ function accountHtml(): string {
 
 // ---------------------------------------------------------------- map panels (layers button and base map button)
 function layersPanelHtml(): string {
-  return `<h3>Trail layers</h3>
+  const v = community.activeVehicle();
+  const modeNote = state.colorBy === 'mine' ? 'Trails you rated show your rating; the rest show the riders\' rating.'
+    : state.colorBy === 'rig' ? (v ? `Forecast for your <b>${esc(v.nickname)}</b>: the riders' rating, adjusted for how their rigs compare to yours.` : 'Add your vehicle in the Garage tab to see trails colored for your rig.')
+    : state.colorBy === 'community' ? 'The riders\' rating. Grey trails aren\'t rated yet.' : 'Who may legally ride each route.';
+  return `<h3>Trails</h3>
       <label class="tg">OHV trails and roads <input type="checkbox" data-set="trails" ${state.trails ? 'checked' : ''}></label>
-      <p class="quiet" style="margin-bottom:4px"><b>Color trails by</b></p>
+      <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
+      <p class="quiet" style="margin:12px 0 4px"><b>Color trails by</b></p>
       <div class="seg seg4" role="group" aria-label="Color trails by">
         <button data-colorby="access" aria-pressed="${state.colorBy === 'access'}">Who can ride</button>
         <button data-colorby="community" aria-pressed="${state.colorBy === 'community'}">Difficulty: riders</button>
         <button data-colorby="rig" aria-pressed="${state.colorBy === 'rig'}">Difficulty: my rig</button>
         <button data-colorby="mine" aria-pressed="${state.colorBy === 'mine'}">Difficulty: mine</button>
       </div>
-      ${state.colorBy === 'access' ? legendHtml() : difficultyLegendHtml()}
-      ${state.colorBy === 'mine' ? '<p class="quiet">Trails you rated show your rating; the rest show the riders\' rating.</p>' : ''}
-      ${state.colorBy === 'rig' ? (community.activeVehicle() ? `<p class="quiet">Forecast for your <b>${esc(community.activeVehicle()!.nickname)}</b>: the riders' rating, adjusted for how their rigs compare to yours.</p>` : '<p class="quiet">Add your vehicle in the Garage tab to see trails colored for your rig.</p>') : ''}
+      <p class="quiet">${modeNote}</p>
       <label class="tg"><span><span class="mk harder">▲</span><span class="mk easier">▼</span> Mark trails that are harder or easier for my rig</span> <input type="checkbox" data-set="rigMarks" ${state.rigMarks ? 'checked' : ''}></label>
-      ${state.rigMarks && !community.activeVehicle() ? '<p class="quiet">Markers appear once you add a vehicle in the Garage tab.</p>' : ''}
-      <p class="quiet">Tap any trail for details. Sources: Forest Service Motor Vehicle Use Maps and BLM travel plans (legal designations), plus OpenStreetMap (community data, not a legal designation). Covers ${state.trailMeta ? `${state.trailMeta.counts ? Object.values(state.trailMeta.counts).reduce((a, b) => a + b, 0).toLocaleString() : ''} routes in Colorado and Utah, updated ${new Date(state.trailMeta.built).toLocaleDateString()}` : 'Colorado and Utah'}. Always follow posted signs.</p>
-      <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
-      <div class="btns"><button data-close>Done</button></div>`;
+      ${state.rigMarks && !v ? '<p class="quiet">Markers appear once you add a vehicle in the Garage tab.</p>' : ''}
+      <p class="quiet">Tap any trail for details and to rate it. Sources: Forest Service Motor Vehicle Use Maps and BLM travel plans (legal designations), plus OpenStreetMap (community data, not a legal designation). Covers ${state.trailMeta ? `${state.trailMeta.counts ? Object.values(state.trailMeta.counts).reduce((a, b) => a + b, 0).toLocaleString() : ''} routes in Colorado and Utah, updated ${new Date(state.trailMeta.built).toLocaleDateString()}` : 'Colorado and Utah'}. Always follow posted signs.</p>
+      <div class="btns"><button data-panel="legend">Legend</button><button class="primary" data-close>Done</button></div>`;
+}
+function legendPanelHtml(): string {
+  const mode = { access: 'Who can ride', community: 'Difficulty: riders', rig: 'Difficulty: my rig', mine: 'Difficulty: mine' }[state.colorBy];
+  const sw = (svg: string, label: string) => `<span class="lg">${svg}${label}</span>`;
+  const line = (c: string, dash = '') => `<svg viewBox="0 0 34 8" aria-hidden="true"><line x1="2" y1="4" x2="32" y2="4" stroke="${c}" stroke-width="4" stroke-linecap="round" ${dash ? `stroke-dasharray="${dash}"` : ''}/></svg>`;
+  return `<h3>Legend</h3>
+      <p class="quiet" style="margin-bottom:4px">Trails are colored by <b>${mode}</b>${state.trails ? '' : ' (trails are turned off)'}.</p>
+      ${state.colorBy === 'access' ? legendHtml() : difficultyLegendHtml()}
+      <p class="quiet" style="margin:12px 0 4px"><b>Also on the map</b></p>
+      <div class="legend">
+        ${sw(line('#E8501A', '6 3'), 'Rider-created trail (dashed until verified)')}
+        ${sw('<span class="mk harder">▲</span>', 'Harder for your rig')}
+        ${sw('<span class="mk easier">▼</span>', 'Easier for your rig')}
+        ${sw('<span class="lgdot">12</span>', 'Zoomed out: number of trails nearby (tap to zoom in)')}
+        ${sw(line('#E8501A'), 'Your recorded ride')}
+      </div>
+      <div class="btns"><button data-panel="layers">Change trail colors</button><button class="primary" data-close>Done</button></div>`;
 }
 function basemapPanelHtml(): string {
   const areas = savedAreas();
@@ -268,8 +287,8 @@ function basemapPanelHtml(): string {
       ${areas.length ? '<div class="btns"><button data-act="clear-tiles">Delete all saved maps</button></div>' : ''}
       <div class="btns"><button data-close>Done</button></div>`;
 }
-function panelHtml() { return state.panel === 'layers' ? layersPanelHtml() : basemapPanelHtml(); }
-function openPanel(p: 'layers' | 'basemap') { sheet(panelHtml(), 'panel'); state.panel = p; fillStorage(); }
+function panelHtml() { return state.panel === 'layers' ? layersPanelHtml() : state.panel === 'legend' ? legendPanelHtml() : basemapPanelHtml(); }
+function openPanel(p: 'layers' | 'basemap' | 'legend') { sheet('', 'panel'); state.panel = p; refreshPanel(); }
 /** Keep an open panel current (download progress, toggles). */
 function refreshPanel() {
   if (!state.panel || $('#sheet').hidden) return;
@@ -684,6 +703,7 @@ $('#tabs').addEventListener('click', e => { const b = (e.target as HTMLElement).
 
 function paneClick(e: Event) {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button'); if (!b) return;
+  if (b.dataset.panel) { openPanel(b.dataset.panel as 'layers' | 'legend'); return; }
   const act = b.dataset.act;
   if (act === 'record') startRecording();
   else if (act === 'stop') stopRecording();
@@ -799,6 +819,7 @@ $('#sheet').addEventListener('click', e => {
 
 $('#btn-layers').addEventListener('click', () => openPanel('layers'));
 $('#btn-base').addEventListener('click', () => openPanel('basemap'));
+$('#btn-legend').addEventListener('click', () => openPanel('legend'));
 $('#btn-center').addEventListener('click', () => {
   state.follow = true; $('#btn-center').classList.add('active');
   if (state.pos) map.easeTo({ center: [state.pos.lon, state.pos.lat], zoom: Math.max(map.getZoom(), 14) });

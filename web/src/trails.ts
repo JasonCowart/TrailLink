@@ -19,12 +19,14 @@ export const UTV_COLORS = {
 
 const accessColor = ['match', ['get', 'utv'], 'open', UTV_COLORS.open, 'limited', UTV_COLORS.limited, 'narrow', UTV_COLORS.narrow, 'street', UTV_COLORS.street, 'closed', UTV_COLORS.closed, UTV_COLORS.unknown];
 const width = ['interpolate', ['linear'], ['zoom'], 8, ['match', ['get', 'kind'], 'road', 1.6, 1.2], 13, ['match', ['get', 'kind'], 'road', 4, 3], 16, ['match', ['get', 'kind'], 'road', 7, 5]];
+// A zoom curve can't be wrapped in math, so the white casing gets its own curve (line width + 2.5).
+const casingWidth = ['interpolate', ['linear'], ['zoom'], 8, ['match', ['get', 'kind'], 'road', 4.1, 3.7], 13, ['match', ['get', 'kind'], 'road', 6.5, 5.5], 16, ['match', ['get', 'kind'], 'road', 9.5, 7.5]];
 
 type L = LayerSpecification & { source: string; 'source-layer': string };
 export const TRAIL_LAYERS: L[] = [
   // White casing under agency routes so they stand out on satellite imagery.
   { id: 'trails-casing', type: 'line', source: 'trails', 'source-layer': 'trails', minzoom: 8, filter: ['!=', ['get', 'src'], 'OSM'],
-    paint: { 'line-color': '#fff', 'line-opacity': 0.8, 'line-width': ['+', width, 2.5] as never }, layout: { 'line-cap': 'round', 'line-join': 'round' } } as L,
+    paint: { 'line-color': '#fff', 'line-opacity': 0.8, 'line-width': casingWidth as never }, layout: { 'line-cap': 'round', 'line-join': 'round' } } as L,
   // OpenStreetMap: dotted, drawn first so agency lines sit on top.
   { id: 'trails-osm', type: 'line', source: 'trails', 'source-layer': 'trails', minzoom: 10, filter: ['==', ['get', 'src'], 'OSM'],
     paint: { 'line-color': accessColor as never, 'line-width': width as never, 'line-dasharray': [0.6, 2], 'line-opacity': 0.85 }, layout: { 'line-cap': 'round' } } as L,

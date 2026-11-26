@@ -17,9 +17,9 @@ export function MapsScreen({ baseMap, setBaseMap, onBack }: { baseMap: BaseMapId
   async function refresh() {
     try {
       const list = await OfflineManager.getPacks();
-      const rows = await Promise.all(list.map(async (p: { name: string; status: () => Promise<{ percentage: number; state: number }> }) => {
+      const rows = await Promise.all(list.map(async p => {
         const st = await p.status();
-        return { name: p.name, progress: Math.round(st.percentage ?? 0), done: (st.percentage ?? 0) >= 100 };
+        return { name: String(p.metadata?.name ?? 'Offline area'), progress: Math.round(st.percentage ?? 0), done: (st.percentage ?? 0) >= 100 };
       }));
       setPacks(rows);
     } catch { /* no packs yet */ }
@@ -34,9 +34,15 @@ export function MapsScreen({ baseMap, setBaseMap, onBack }: { baseMap: BaseMapId
     const name = `Area around ${myPos.lat.toFixed(2)}, ${myPos.lon.toFixed(2)}`;
     try {
       await OfflineManager.createPack(
-        { name, styleURL: BASE_MAPS[baseMap].style || BASE_MAPS.topo.style, bounds: [[myPos.lon + d, myPos.lat + d], [myPos.lon - d, myPos.lat - d]], minZoom: 8, maxZoom: 15 },
+        {
+          mapStyle: BASE_MAPS[baseMap].style || BASE_MAPS.topo.style,
+          bounds: [myPos.lon - d, myPos.lat - d, myPos.lon + d, myPos.lat + d], // west, south, east, north
+          minZoom: 8,
+          maxZoom: 15,
+          metadata: { name },
+        },
         () => { void refresh(); },
-        (_pack: unknown, err: { message?: string }) => setError(err?.message ?? 'Download failed'),
+        (_pack, err) => setError(String((err as { message?: string })?.message ?? 'Download failed')),
       );
       void refresh();
     } catch (e) {

@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Camera, MapView, MarkerView, type CameraRef } from '@maplibre/maplibre-react-native';
+import { Camera, Map as MapLibreMap, Marker, type CameraRef } from '@maplibre/maplibre-react-native';
 import { useApp } from '../app/context.tsx';
 import { BASE_MAPS, type BaseMapId } from '../config.ts';
 import { ageLabel, freshness, viaLabel } from '../core/status.ts';
@@ -13,6 +13,9 @@ export function MapScreen({ baseMap, onOpenMaps, onSos }: { baseMap: BaseMapId; 
   const { session, myPos, online, version } = useApp();
   const camera = useRef<CameraRef>(null);
   const [followMe, setFollowMe] = useState(true);
+  useEffect(() => {
+    if (followMe && myPos) camera.current?.easeTo({ center: [myPos.lon, myPos.lat] });
+  }, [myPos, followMe]);
   if (!session) return null;
   void version; // re-render when session data changes
 
@@ -32,30 +35,30 @@ export function MapScreen({ baseMap, onOpenMaps, onSos }: { baseMap: BaseMapId; 
         right={<View style={{ flexDirection: 'row', gap: 6 }}><Chip label="Cell" on={online} /><Chip label={`${live} live`} light /></View>}
       />
       <View style={{ flex: 1 }}>
-        <MapView style={{ flex: 1 }} mapStyle={style} onRegionWillChange={(e: { properties?: { isUserInteraction?: boolean } }) => { if (e?.properties?.isUserInteraction) setFollowMe(false); }}>
-          <Camera ref={camera} zoomLevel={13} centerCoordinate={myPos ? [myPos.lon, myPos.lat] : [-104.99, 39.07]} />
+        <MapLibreMap style={{ flex: 1 }} mapStyle={style} onRegionWillChange={e => { if (e.nativeEvent.userInteraction) setFollowMe(false); }}>
+          <Camera ref={camera} initialViewState={{ center: myPos ? [myPos.lon, myPos.lat] : [-104.99, 39.07], zoom: 13 }} />
           {riders.map(({ rider, position, isMe }) => {
             const p = isMe ? myPos : position?.body.kind === 'position' ? position.body.data : null;
             if (!p) return null;
             const fresh = isMe ? 'live' : freshness(position!);
             const label = isMe ? 'You' : `${rider.name} · ${ageLabel(position!.ts)}`;
             return (
-              <MarkerView key={rider.id} coordinate={[p.lon, p.lat]} anchor={{ x: 0.5, y: 0.3 }}>
+              <Marker key={rider.id} id={rider.id} lngLat={[p.lon, p.lat]} anchor="top">
                 <View style={{ alignItems: 'center' }} accessibilityLabel={`${label}, ${isMe ? '' : viaLabel(position!.via, session.nameOf)}`}>
                   <Avatar initials={isMe ? 'ME' : initialsOf(rider.name)} color={isMe ? colors.orange : rider.color} size={isMe ? 40 : 34} stale={fresh === 'stale'} />
                   <Text style={{ marginTop: 2, backgroundColor: '#fff', paddingHorizontal: 6, borderRadius: 6, fontFamily: font.bold, fontSize: 12, color: colors.ink }}>{label}</Text>
                 </View>
-              </MarkerView>
+              </Marker>
             );
           })}
           {session.store.pins(session.group.id).map(pin => pin.body.kind === 'pin' ? (
-            <MarkerView key={pin.id} coordinate={[pin.body.data.lon, pin.body.data.lat]}>
+            <Marker key={pin.id} id={pin.id} lngLat={[pin.body.data.lon, pin.body.data.lat]} anchor="bottom">
               <View style={{ backgroundColor: pin.body.data.pinType === 'hazard' ? colors.sos : colors.action, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
                 <Text style={{ color: '#fff', fontFamily: font.bold, fontSize: 12 }}>{pin.body.data.pinType === 'hazard' ? 'Hazard' : 'Regroup'}</Text>
               </View>
-            </MarkerView>
+            </Marker>
           ) : null)}
-        </MapView>
+        </MapLibreMap>
 
         {warnings[0] ? (
           <View style={{ position: 'absolute', top: 12, left: 12, right: 76, backgroundColor: colors.warnBg, borderColor: colors.warnLine, borderWidth: 1, borderRadius: 12, padding: 12 }}>

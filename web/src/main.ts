@@ -343,7 +343,7 @@ function vehicleForm(v?: Vehicle) {
   const x: Vehicle = v ?? { id: '', nickname: '', make: '', model: '', widthIn: 64, tireIn: 28, liftIn: 0, lockers: 'none', winch: false, skids: false, sliders: false, updatedAt: '' };
   sheet(`<h3>${v ? `Edit ${esc(v.nickname)}` : 'Add a vehicle'}</h3>
     <form id="vehicleform" class="form">
-      ${v ? `<input type="hidden" name="id" value="${v.id}">` : ''}
+      ${v ? `<input type="hidden" name="vid" value="${v.id}">` : ''}
       <label>Nickname<input name="nickname" required maxlength="40" value="${esc(x.nickname)}" placeholder="e.g. The Turbo"></label>
       <div class="cols3">
         <label>Year<input name="year" inputmode="numeric" maxlength="4" pattern="(19|20)[0-9]{2}" value="${x.year ?? ''}" placeholder="2024"></label>
@@ -372,7 +372,7 @@ function vehicleForm(v?: Vehicle) {
 function vehicleFromForm(f: FormData): Omit<Vehicle, 'id' | 'updatedAt'> & { id?: string } {
   const year = Number(f.get('year'));
   return {
-    id: String(f.get('id') ?? '') || undefined, nickname: String(f.get('nickname') ?? '').trim() || 'My rig',
+    id: String(f.get('vid') ?? '') || undefined, nickname: String(f.get('nickname') ?? '').trim() || 'My rig',
     make: String(f.get('make') ?? '').trim(), model: String(f.get('model') ?? '').trim(), year: year >= 1980 && year <= 2100 ? year : undefined,
     widthIn: Number(f.get('widthIn')) as Vehicle['widthIn'], tireIn: Number(f.get('tireIn')), liftIn: Number(f.get('liftIn')),
     lockers: f.get('lockers') as Vehicle['lockers'], winch: f.has('winch'), skids: f.has('skids'), sliders: f.has('sliders'),

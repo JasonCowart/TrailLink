@@ -1,7 +1,6 @@
 -- Behaviour checks for schema.sql (run after test-stub.sql and schema.sql). Any failure aborts with an error.
-grant usage on schema public, auth to authenticated, anon;
-grant select, insert, update, delete on all tables in schema public to authenticated;
-grant select on all tables in schema public to anon;
+-- Only the grants from schema.sql apply to the app's roles (mirrors a Supabase project with no default grants).
+grant usage on schema auth to authenticated, anon;
 grant execute on function auth.uid() to authenticated, anon;
 
 insert into auth.users values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b'),

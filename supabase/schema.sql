@@ -111,5 +111,11 @@ create policy "confirm others' trails" on public.trail_confirmations for insert 
   rider_id = auth.uid() and not exists (select 1 from public.rider_trails t where t.id = trail_id and t.created_by = auth.uid()));
 create policy "own confirmation delete" on public.trail_confirmations for delete using (rider_id = auth.uid());
 
--- Let the app read the views.
+-- Let the app use the tables and views (row-level security above still limits which rows).
+grant usage on schema public to anon, authenticated;
+grant select on public.profiles, public.ratings, public.rider_trails, public.trail_confirmations to anon, authenticated;
+grant insert, update on public.profiles to authenticated;
+grant insert, update, delete on public.ratings to authenticated;
+grant insert, update, delete on public.rider_trails to authenticated;
+grant insert, delete on public.trail_confirmations to authenticated;
 grant select on public.trail_scores, public.rider_trails_public to anon, authenticated;

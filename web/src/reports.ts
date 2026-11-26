@@ -1,7 +1,7 @@
 // Quick trail reports, like a car navigation app's "report" buttons, but for trail problems.
 // Each has its own line icon (24×24, drawn in code so it works offline) and color.
 export const REPORTS = {
-  tree:    { label: 'Downed tree', color: '#15803D', path: '<path d="M21 12l-6.5 5v-2.8l-5 3.8V6l5 3.8V7z"/><path d="M9.5 12H4"/><path d="M4 9.5v5"/><path d="M3 21h18"/>' },
+  tree:    { label: 'Downed tree', color: '#15803D', path: '<path d="M17 9.5H6.5a2.5 3.5 0 0 0 0 7H17"/><ellipse cx="17" cy="13" rx="2.5" ry="3.5"/><ellipse cx="17" cy="13" rx=".8" ry="1.2"/><path d="M10 9.5 8.5 5.5M9 6.8l2.2-1.3"/><path d="M3 20.5h18"/>' },
   rocks:   { label: 'Rockslide', color: '#78716C', path: '<path d="M3 20 6 13l5-2 3 3-1 6z"/><path d="M13 20l2-5 4-1 2 6z"/><path d="M15 4l1.5 1.5M19 7l1 1M12 6l1 1"/>' },
   washout: { label: 'Washout', color: '#B45309', path: '<path d="M3 8h6M15 8h6M3 16h6M15 16h6"/><path d="M11 5l2 3-2 3 2 3-2 3 2 3"/>' },
   water:   { label: 'Deep water', color: '#2563EB', path: '<path d="M3 10c2-2 4 2 6 0s4 2 6 0 4 2 6 0"/><path d="M3 15c2-2 4 2 6 0s4 2 6 0 4 2 6 0"/><path d="M3 20c2-2 4 2 6 0s4 2 6 0 4 2 6 0"/>' },

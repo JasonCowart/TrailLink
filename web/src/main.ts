@@ -1074,7 +1074,7 @@ window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); instal
 window.addEventListener('appinstalled', () => { $('#installbar')?.remove(); toast('TrailLink is on your home screen. Open it from there for full screen.'); });
 function showInstallBar() {
   if (standalone() || store.get('installDismissed', false) || $('#installbar')) return;
-  $('#mapwrap').insertAdjacentHTML('beforeend', `<div id="installbar"><span><b>Full-screen map</b>Add TrailLink to your home screen to hide the address bar.</span>
+  $('#mapwrap').insertAdjacentHTML('beforeend', `<div id="installbar"><span><b>Hide the address bar</b>Add to Home Screen</span>
     <button class="primary" data-install="go">${installEvent ? 'Install' : 'How'}</button><button data-install="no" aria-label="Not now">✕</button></div>`);
 }
 function installHelp() {
@@ -1092,6 +1092,10 @@ $('#mapwrap').addEventListener('click', e => {
   if (installEvent) { void installEvent.prompt(); installEvent = null; $('#installbar')?.remove(); } else installHelp();
 });
 setTimeout(showInstallBar, 4000);
+// Map credits start folded to the small (i) button instead of a wide strip across the map.
+const foldCredits = () => document.querySelectorAll('.maplibregl-ctrl-attrib.maplibregl-compact-show').forEach(el => { el.classList.remove('maplibregl-compact-show'); el.removeAttribute('open'); });
+map.on('load', () => setTimeout(foldCredits, 300));
+map.on('style.load', () => setTimeout(foldCredits, 300));
 
 function renderPane() {
   const pane = $('#pane');

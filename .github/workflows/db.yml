@@ -32,8 +32,10 @@ jobs:
           psql -v ON_ERROR_STOP=1 -q -f supabase/006-groups.sql
           psql -v ON_ERROR_STOP=1 -q -f supabase/007-shared-pins.sql
           psql -v ON_ERROR_STOP=1 -q -f supabase/008-vehicle-color.sql
+          psql -v ON_ERROR_STOP=1 -q -f supabase/009-badges.sql
           psql -v ON_ERROR_STOP=1 -f supabase/test.sql
           psql -v ON_ERROR_STOP=1 -f supabase/test-admin.sql
           psql -v ON_ERROR_STOP=1 -f supabase/test-garage.sql
           psql -v ON_ERROR_STOP=1 -f supabase/test-groups.sql
           psql -v ON_ERROR_STOP=1 -f supabase/test-shared-pins.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/test-badges.sql

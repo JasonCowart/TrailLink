@@ -540,6 +540,8 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => { navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {}); });
 }
 $('#btn-center').classList.add('active');
+// Test hook: open the app with #debug to reach the map from automated browser tests.
+if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state } });
 render();
 map.on('load', drawPins);
 startGps();

@@ -7,7 +7,7 @@ import { BASE_MAPS, MVUM_TILES, STREET_STYLE_URL, TRAIL_MAXZOOM, TRAIL_TILES, ra
 import { COLORED_LAYERS, OVERVIEW_LAYERS, TRAIL_LAYERS, difficultyLegendHtml, legendHtml, rateSheetHtml, ratingHtml, rigMarkerImage, rigMarkerLayers, trailColor, trailPopupHtml, type ColorBy, type RatingInfo } from './trails.ts';
 import { LIFTS, LOCKERS, TIRE_SIZES, WIDTHS, bandShift, forecast, rigClass, rigScore, vehicleSummary, vehicleTitle, type Vehicle } from './garage.ts';
 import { VEHICLE_FIT, lengthMiles, levelOf, LEVELS, stepColor, type RiderTrail, type VehicleFit } from './community.ts';
-import { OnlineCommunity, type AdminRider, type GroupMember } from './online.ts';
+import { OnlineCommunity, type AdminRider, type GroupMember, type SharedPin } from './online.ts';
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from './photos.ts';
@@ -642,6 +642,7 @@ const pinMarkers = new Map<string, maplibregl.Marker>();
 function drawPins() {
   for (const [id, m] of pinMarkers) if (!state.pins.find(p => p.id === id)) { m.remove(); pinMarkers.delete(id); }
   for (const p of state.pins) {
+    if (sharedOf(p)?.status === 'cleared') { pinMarkers.get(p.id)?.remove(); pinMarkers.delete(p.id); continue; }
     const label = `${p.photos?.length ? '📷 ' : ''}${pinTitle(p, true)}`;
     const old = pinMarkers.get(p.id);
     if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().textContent === label) continue; old.remove(); }
@@ -665,9 +666,71 @@ function addPin(kind: Pin['kind'], note?: string, photos?: string[], at?: { lat:
   if (!where) { toast('Waiting for a GPS fix. Or use "Place on map".'); return null; }
   const pin: Pin = { id: String(Date.now()), kind, lat: where.lat, lon: where.lon, t: Date.now(), note: note?.trim() || undefined, photos, report };
   state.pins.unshift(pin);
+  // Hazard reports are shared with all riders. Other pins go to the ride group only if the rider turned that on.
+  if (kind === 'report' || kind === 'hazard') shareOwnPin(pin, 'all');
+  else if (store.get('shareNewPins', false) && community.group) shareOwnPin(pin, 'group');
   store.savePins(state.pins); drawPins(); renderPane();
-  toast(`${pinTitle(pin, true)} pinned${at ? '' : ' here'}`);
+  toast(`${pinTitle(pin, true)} pinned${at ? '' : ' here'}${pin.share === 'all' ? ' and shared with riders' : pin.share === 'group' ? ' and shared with your group' : ''}`);
   return pin;
+}
+
+// ---------------------------------------------------------------- sharing pins (hazards: all riders; others: the group, if chosen)
+const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`.padEnd(36, '0'));
+function shareOwnPin(pin: Pin, to: 'all' | 'group') {
+  if (to === 'group' && !community.group) { toast('Join a ride group to share pins with it.'); return; }
+  pin.sid ??= newId(); pin.share = to; pin.groupId = to === 'group' ? community.group!.id : undefined;
+  pushPin(pin);
+}
+/** Upload the pin's current spot and note (after sharing, moving or editing). Queued until there's signal. */
+function pushPin(pin: Pin) {
+  if (!pin.sid || !pin.share) return;
+  community.sharePin({ id: pin.sid, audience: pin.share, groupId: pin.groupId ?? null, kind: pin.kind, report: pin.report, note: pin.note, lat: pin.lat, lon: pin.lon, createdAt: new Date(pin.t).toISOString() });
+}
+function unshareOwnPin(pin: Pin) { if (pin.sid) community.unsharePin(pin.sid); pin.sid = undefined; pin.share = undefined; pin.groupId = undefined; }
+/** The shared copy of one of my pins (to show "cleared by ..." etc.). */
+const sharedOf = (pin: Pin) => (pin.sid ? community.sharedPins.find(x => x.id === pin.sid) : undefined);
+const myId = () => community.session?.user.id;
+/** Others' pins I can see: hazard reports from all riders and pins shared with my group. */
+const othersPins = () => community.sharedPins.filter(p => p.riderId !== myId());
+const REPORT_KINDS = new Set(['report', 'hazard']);
+function sharedTitle(p: SharedPin, icon = false) {
+  const r = p.report ? REPORTS[p.report as ReportType] : null;
+  const base = p.note || (r ? r.label : PIN_NAMES[p.kind as Pin['kind']] ?? 'Pin');
+  return r && icon ? `${r.icon} ${base}` : base;
+}
+function hazardStatus(p: SharedPin): string {
+  if (p.status === 'cleared') return `Cleared by ${esc(community.nameOf(p.clearedBy))} ${p.clearedAt ? ago(p.clearedAt) : ''}`;
+  const reported = `Reported by ${esc(p.riderId === myId() ? 'you' : p.by)} ${ago(p.createdAt)}`;
+  return p.confirmations ? `${reported} · still there ${ago(p.lastConfirmed)} (${p.confirmations} rider${p.confirmations === 1 ? '' : 's'})` : reported;
+}
+function voteButtons(p: SharedPin) {
+  const v = community.myVotes[p.id];
+  return `<div class="btns"><button data-act2="pinvote" data-id="${p.id}" data-v="there" aria-pressed="${v === 'there'}" class="${v === 'there' ? 'on' : ''}">👍 Still there</button>
+    <button data-act2="pinvote" data-id="${p.id}" data-v="cleared" aria-pressed="${v === 'cleared'}" class="${v === 'cleared' ? 'on' : ''}">✅ Cleared</button></div>`;
+}
+/** Someone else's pin: who shared it, when, and (for hazards) still there / cleared. */
+function remotePinSheet(id: string) {
+  const p = community.sharedPins.find(x => x.id === id); if (!p) return;
+  const hazard = REPORT_KINDS.has(p.kind);
+  sheet(`<h3>${esc(sharedTitle(p, true))}</h3>
+    <p class="quiet">${hazard ? hazardStatus(p) : `Shared with your group by ${esc(p.by)} ${ago(p.createdAt)}`}${state.pos ? ` · ${(distanceM(state.pos, p) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, p))}` : ''}</p>
+    ${hazard ? `<p class="quiet">Rode past it? Let other riders know.</p>${voteButtons(p)}` : ''}
+    <div class="btns"><button data-act2="gotoshared" data-id="${p.id}">Show on map</button>${community.isReviewer ? `<button class="danger" data-act2="removeshared" data-id="${p.id}">Remove for everyone</button>` : ''}<button class="primary" data-close>Done</button></div>`);
+}
+const remoteMarkers = new Map<string, maplibregl.Marker>();
+function drawRemotePins() {
+  const show = othersPins().filter(p => p.status === 'active');
+  for (const [id, m] of remoteMarkers) if (!show.some(p => p.id === id)) { m.remove(); remoteMarkers.delete(id); }
+  for (const p of show) {
+    const label = `${sharedTitle(p, true)} · ${p.by}`;
+    const old = remoteMarkers.get(p.id);
+    if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().textContent === label) continue; old.remove(); }
+    const el = document.createElement('div');
+    el.className = `pin ${p.kind} shared`;
+    el.textContent = label;
+    el.addEventListener('click', ev => { ev.stopPropagation(); remotePinSheet(p.id); });
+    remoteMarkers.set(p.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map));
+  }
 }
 
 // ---------------------------------------------------------------- placing and moving pins: slide the map under a crosshair
@@ -694,7 +757,7 @@ $('#mapwrap').addEventListener('click', e => {
   const c = map.getCenter(), at = { lat: c.lat, lon: c.lng };
   if (p.mode === 'move') {
     const pin = state.pins.find(x => x.id === p.pinId); if (!pin) return;
-    pin.lat = at.lat; pin.lon = at.lon; store.savePins(state.pins); drawPins(); renderPane(); toast('Pin moved.');
+    pin.lat = at.lat; pin.lon = at.lon; pushPin(pin); store.savePins(state.pins); drawPins(); renderPane(); toast('Pin moved.');
   } else if (p.report) reported(addPin('report', undefined, undefined, at, p.report));
   else pinChooser(at);
 });
@@ -799,8 +862,24 @@ function unpinPhoto(pinId: string, photoId: string) {
 }
 function removePin(pinId: string) {
   const pin = state.pins.find(p => p.id === pinId);
+  if (pin?.sid) community.unsharePin(pin.sid);
   if (pin?.photos?.length) keepLoose(pin, pin.photos);
   state.pins = state.pins.filter(p => p.id !== pinId); store.savePins(state.pins); drawPins(); renderPane();
+}
+function sharedPinsHtml(): string {
+  if (!community.signedIn) return '';
+  const pos = state.pos, dist = (p: SharedPin) => (pos ? distanceM(pos, p) : 0);
+  const row = (p: SharedPin) => `<div class="row"><div class="grow"><b>${esc(sharedTitle(p, true))}</b>
+    <div class="quiet">${REPORT_KINDS.has(p.kind) ? hazardStatus(p) : `From ${esc(p.by)} ${ago(p.createdAt)}`}${pos ? ` · ${(dist(p) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(pos, p))}` : ''}</div></div>
+    <button data-shared="${p.id}">Open</button></div>`;
+  const others = othersPins();
+  const active = others.filter(p => p.status === 'active').sort((a, b) => dist(a) - dist(b));
+  const hazards = active.filter(p => REPORT_KINDS.has(p.kind)), group = active.filter(p => !REPORT_KINDS.has(p.kind));
+  const cleared = community.sharedPins.filter(p => p.status === 'cleared');
+  return `${group.length ? `<h2>Shared by your group</h2>${group.slice(0, 30).map(row).join('')}` : ''}
+    <h2>Trail reports from riders</h2>
+    ${hazards.length ? hazards.slice(0, 40).map(row).join('') : '<p class="quiet">No open reports from other riders.</p>'}
+    ${cleared.length ? `<details class="cleared"><summary>Cleared in the last 30 days (${cleared.length})</summary>${cleared.slice(0, 40).map(row).join('')}</details>` : ''}`;
 }
 function loosePhotosHtml(): string {
   if (!loosePhotos.length) return '';
@@ -820,8 +899,14 @@ function looseSheet(id: string) {
 function pinSheet(pinId: string) {
   const pin = state.pins.find(p => p.id === pinId); if (!pin) return;
   const when = new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const sp = sharedOf(pin), hazard = REPORT_KINDS.has(pin.kind);
+  const sharing = hazard
+    ? `<div class="card"><b>Shared with all riders</b><div class="quiet">${sp ? hazardStatus(sp) : community.signedIn ? 'Uploads when you have signal.' : 'Sign in (Trails tab) to share it.'}</div>${sp ? voteButtons(sp) : ''}</div>`
+    : `<label class="tg"><span><b>Share with my group</b><br><span class="quiet">${pin.share === 'group' ? 'Your ride group can see this pin.' : community.group ? `Private. Turn on to show it to ${esc(community.group.name)}.` : 'Private. Join a ride group to share it.'}</span></span>
+        <input type="checkbox" data-pinshare="${pin.id}" ${pin.share === 'group' ? 'checked' : ''} ${community.group || pin.share ? '' : 'disabled'}></label>`;
   sheet(`<div data-pinsheet="${pin.id}"><h3>${esc(pinTitle(pin, true))}</h3>
     <p class="quiet">${when} · ${pin.lat.toFixed(5)}, ${pin.lon.toFixed(5)}</p>
+    ${sharing}
     ${(pin.photos ?? []).map(ph => `<figure class="pinphoto"><img data-photo="${ph}" alt="Pin photo">
       <div class="btns"><button class="small" data-act2="savephoto" data-id="${ph}" data-t="${pin.t}">Save to Photos</button><button class="small" data-act2="unpinphoto" data-pin="${pin.id}" data-id="${ph}">Take off pin</button></div></figure>`).join('') || '<p class="quiet">No photos yet.</p>'}
     <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, '📷 Add photo')}<button data-act2="movepin" data-id="${pin.id}">Move pin</button><button class="primary" data-close>Done</button></div></div>`);
@@ -953,10 +1038,14 @@ const views: Record<Tab, () => string> = {
       ${state.pins.length ? state.pins.map(pin => {
         const d = p ? `${(distanceM(p, pin) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(p, pin))}` : '';
         const ph = pin.photos ?? [];
-        return `<div class="pinrow"><div class="row"><div class="grow"><b>${esc(pinTitle(pin, true))}</b><div class="quiet">${d}${d ? ' · ' : ''}${new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div></div>
+        const sp = sharedOf(pin);
+        const shareTag = sp?.status === 'cleared' ? ' <span class="tag">Cleared</span>' : pin.share === 'all' ? ' <span class="tag">All riders</span>' : pin.share === 'group' ? ' <span class="tag">Group</span>' : '';
+        return `<div class="pinrow"><div class="row"><div class="grow"><b>${esc(pinTitle(pin, true))}</b>${shareTag}<div class="quiet">${d}${d ? ' · ' : ''}${new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div></div>
           <button data-goto="${pin.id}" aria-label="Show on map">Show</button><button data-movepin="${pin.id}" aria-label="Move pin">Move</button><button data-delpin="${pin.id}" aria-label="Delete pin">✕</button></div>
           <div class="thumbs">${ph.map(id => `<button class="thumb" data-openpin="${pin.id}" aria-label="View photo"><img data-photo="${id}" alt=""></button>`).join('')}${photoInput(`data-addphoto="${pin.id}"`, ph.length ? '+' : '📷 Add photo', ph.length ? 'thumb add' : 'small')}</div></div>`;
       }).join('') : '<p class="quiet">No pins yet. Pins and their photos stay on this phone and work offline.</p>'}
+      ${community.signedIn ? `<label class="tg"><span>Share my new pins with my group<br><span class="quiet">${community.group ? `Regroup points, notes and photo pins go to ${esc(community.group.name)}. Hazard reports always go to all riders.` : 'Join a ride group first (Group tab). Hazard reports always go to all riders.'}</span></span><input type="checkbox" data-set="shareNewPins" ${store.get('shareNewPins', false) ? 'checked' : ''}></label>` : ''}
+      ${sharedPinsHtml()}
       ${loosePhotosHtml()}`;
   },
   group() {
@@ -983,7 +1072,7 @@ function render() {
   renderChips(); renderPane();
 }
 
-$('#tabs').addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-tab]'); if (b) { state.tab = b.dataset.tab as Tab; if (state.detail) { state.detail = false; tapMarker.remove(); } render(); } });
+$('#tabs').addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-tab]'); if (b) { state.tab = b.dataset.tab as Tab; if (state.tab === 'pins') void community.fetchSharedPins().then(() => community.onChange()); if (state.detail) { state.detail = false; tapMarker.remove(); } render(); } });
 
 function paneClick(e: Event) {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button'); if (!b) return;
@@ -1036,6 +1125,7 @@ function paneClick(e: Event) {
   if (act === 'report') openReport();
   if (act === 'placepin') startPlacing({ mode: 'new' });
   if (b.dataset.loose) looseSheet(b.dataset.loose);
+  if (b.dataset.shared) remotePinSheet(b.dataset.shared);
   if (b.dataset.goto) { const p = state.pins.find(x => x.id === b.dataset.goto); if (p) { state.follow = false; map.flyTo({ center: [p.lon, p.lat], zoom: 15 }); } }
   if (b.dataset.forget) { forgetArea(b.dataset.forget); renderPane(); }
   if (b.dataset.showarea) { const a = savedAreas().find(x => x.id === b.dataset.showarea); if (a) { state.follow = false; closeSheet(); map.fitBounds([[a.bounds.w, a.bounds.s], [a.bounds.e, a.bounds.n]]); } }
@@ -1045,6 +1135,14 @@ $('#sheet').addEventListener('click', e => { if (state.panel) paneClick(e); });
 function paneChange(e: Event) {
   const t = e.target as HTMLInputElement;
   if (t.type === 'file') { photoInputChanged(t); return; }
+  if (t.dataset.set === 'shareNewPins') { store.set('shareNewPins', t.checked); renderPane(); return; }
+  if (t.dataset.pinshare) {
+    const pin = state.pins.find(p => p.id === t.dataset.pinshare); if (!pin) return;
+    if (t.checked) shareOwnPin(pin, 'group'); else unshareOwnPin(pin);
+    store.savePins(state.pins); renderPane(); pinSheet(pin.id);
+    toast(t.checked ? 'Shared with your group.' : 'Pin is private again.');
+    return;
+  }
   if (t.dataset.set === 'sharing') {
     const on = t.checked; state.groupBusy = true; state.groupError = '';
     community.setSharing(on).then(() => { toast(on ? 'Sharing your location with the group.' : 'Stopped sharing. Your location was removed from the group.'); lastShare = 0; maybeSharePosition(); },
@@ -1082,6 +1180,7 @@ $('#pane').addEventListener('submit', e => {
 });
 $('#sheet').addEventListener('change', e => {
   if ((e.target as HTMLInputElement).type === 'file') { photoInputChanged(e.target as HTMLInputElement); return; }
+  if ((e.target as HTMLInputElement).dataset.pinshare) { paneChange(e); return; }
   const t = e.target as HTMLSelectElement;
   if (t.id === 'ratevehicle') { community.setActive(t.value); afterGarageChange(); }
   if (t.closest('#vehicleform')) updateRigPreview();
@@ -1099,7 +1198,7 @@ $('#sheet').addEventListener('submit', e => {
   if ((e.target as HTMLElement).id === 'noteform') { const at = pendingNoteAt ?? undefined; pendingNoteAt = null; addPin('note', $<HTMLInputElement>('#notetext').value, undefined, at); closeSheet(); }
   if ((e.target as HTMLElement).id === 'pinnoteform') {
     const f = e.target as HTMLFormElement, pin = state.pins.find(p => p.id === f.dataset.id);
-    if (pin) { pin.note = String(new FormData(f).get('note') ?? '').trim() || undefined; store.savePins(state.pins); drawPins(); renderPane(); }
+    if (pin) { pin.note = String(new FormData(f).get('note') ?? '').trim() || undefined; pushPin(pin); store.savePins(state.pins); drawPins(); renderPane(); }
     closeSheet();
   }
   if ((e.target as HTMLElement).id === 'trailform' && pendingCoords) {
@@ -1116,6 +1215,15 @@ $('#sheet').addEventListener('click', e => {
   if (b.dataset.unvote) { void vote(b.dataset.unvote, null); return; }
   if (b.dataset.vote && b.dataset.tid) { void vote(b.dataset.tid, Number(b.dataset.vote)); return; }
   if (b.dataset.act2 === 'deltrail' && b.dataset.id) { void community.deleteTrail(b.dataset.id).then(() => { closeSheet(); popup.remove(); refreshRiderTrails(); renderPane(); }); return; }
+  if (b.dataset.act2 === 'pinvote' && b.dataset.id) {
+    const v = b.dataset.v as 'there' | 'cleared'; community.votePin(b.dataset.id, v);
+    toast(v === 'cleared' ? 'Marked cleared. Thanks!' : 'Thanks! Riders will see it was still there.');
+    drawPins(); drawRemotePins(); renderPane();
+    const own = state.pins.find(p => p.sid === b.dataset.id); if (own) pinSheet(own.id); else remotePinSheet(b.dataset.id);
+    return;
+  }
+  if (b.dataset.act2 === 'gotoshared' && b.dataset.id) { const p = community.sharedPins.find(x => x.id === b.dataset.id); if (p) { state.follow = false; closeSheet(); map.flyTo({ center: [p.lon, p.lat], zoom: Math.max(map.getZoom(), 15) }); } return; }
+  if (b.dataset.act2 === 'removeshared' && b.dataset.id) { community.unsharePin(b.dataset.id); closeSheet(); drawRemotePins(); renderPane(); toast('Removed for everyone.'); return; }
   if (b.dataset.act2 === 'report' && b.dataset.report) { if (!state.pos) { startPlacing({ mode: 'new', report: b.dataset.report as ReportType }); return; } closeSheet(); reported(addPin('report', undefined, undefined, undefined, b.dataset.report as ReportType)); return; }
   if (b.dataset.act2 === 'reportplace') { startPlacing({ mode: 'new' }); return; }
   if (b.dataset.act2 === 'pinat' && pendingAt) {
@@ -1197,7 +1305,7 @@ if (location.hash === '#debug') Object.assign(window, { tl: { map, community, st
 function updateGate() { $('#gate').hidden = community.trusted; }
 // Background updates re-draw the open tab, except while the rider is typing in it.
 const typingIn = (sel: string) => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && (a as HTMLInputElement).type !== 'checkbox' && !!a.closest(sel); };
-community.onChange = () => { updateGate(); refreshRiderTrails(); applyRigMarks(); drawRiders(); refreshPopup(); if (['trails', 'garage', 'group'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
+community.onChange = () => { updateGate(); refreshRiderTrails(); applyRigMarks(); drawRiders(); drawRemotePins(); drawPins(); refreshPopup(); if (['trails', 'garage', 'group', 'pins'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
 updateGate();
 $('#gateform').addEventListener('submit', e => {
   e.preventDefault();
@@ -1214,6 +1322,8 @@ setInterval(() => { if (document.visibilityState === 'visible') void community.s
 setInterval(() => { if (document.visibilityState === 'visible' && community.group) void community.refreshGroup(); }, 20_000);
 void community.init().then(() => { updateGate(); void community.refreshGroup(); }, updateGate);
 setInterval(() => { if (community.group) drawRiders(); }, 60_000); // keep 'x min ago' labels current
+// Riders' reports: check every minute while the app is open.
+setInterval(() => { if (document.visibilityState === 'visible') void community.fetchSharedPins().then(() => community.onChange()); }, 60_000);
 window.addEventListener('online', () => { void community.sync(); });
 render();
 map.on('load', drawPins);

@@ -13,7 +13,10 @@ type Op =
   | { k: 'unrate'; tid: string }
   | { k: 'trail'; t: RiderTrail }
   | { k: 'deltrail'; id: string }
-  | { k: 'confirm'; id: string };
+  | { k: 'confirm'; id: string }
+  | { k: 'pin'; p: PinUpload }
+  | { k: 'unpin'; id: string }
+  | { k: 'vote'; id: string; v: 'there' | 'cleared' };
 
 interface RemoteTrailRow {
   id: string; name: string; difficulty: number; vehicles: RiderTrail['vehicles']; notes: string | null;
@@ -30,6 +33,11 @@ export interface AdminRider {
 }
 
 export interface Group { id: string; name: string; code: string }
+/** A pin as uploaded: hazard reports go to all riders; other pins only to the rider's group, if they choose. */
+export interface PinUpload { id: string; audience: 'all' | 'group'; groupId: string | null; kind: string; report?: string; note?: string; lat: number; lon: number; createdAt: string }
+export interface SharedPin extends PinUpload {
+  riderId: string; by: string; status: 'active' | 'cleared'; clearedBy: string | null; clearedAt: string | null; lastConfirmed: string; confirmations: number;
+}
 export interface GroupMember {
   riderId: string; name: string; sharing: boolean; joinedAt: string;
   pos?: { lat: number; lon: number; acc: number | null; speed: number | null; heading: number | null; at: string };
@@ -51,6 +59,7 @@ export class OnlineCommunity implements Community {
   private activeId: string | null = read('traillink.activeVehicle', null);
   private rigModel: { pairs: number; slope: number | null } | null = read('traillink.rigModel', null);
   isAdmin: boolean = read('traillink.isAdmin', false);
+  isReviewer: boolean = read('traillink.isReviewer', false);
   syncState: SyncState = 'offline';
   lastSynced: string | null = read('traillink.lastSynced', null);
   onChange: () => void = () => {};
@@ -98,9 +107,10 @@ export class OnlineCommunity implements Community {
   private async afterSignIn() {
     if (!this.session) return;
     const name = this.profileName || this.local.me()?.name;
-    const { data } = await this.sb.from('profiles').select('display_name,is_admin').eq('id', this.session.user.id).maybeSingle();
+    const { data } = await this.sb.from('profiles').select('display_name,is_admin,is_reviewer').eq('id', this.session.user.id).maybeSingle();
     if (data?.display_name && !name) this.setName(data.display_name);
-    this.isAdmin = !!data?.is_admin; write('traillink.isAdmin', this.isAdmin); this.onChange();
+    this.isAdmin = !!data?.is_admin; write('traillink.isAdmin', this.isAdmin);
+    this.isReviewer = !!data?.is_reviewer || this.isAdmin; write('traillink.isReviewer', this.isReviewer); this.onChange();
     const display = (data?.display_name as string | undefined) ?? name ?? this.session.user.email?.split('@')[0] ?? 'Rider';
     if (!data) await this.sb.from('profiles').insert({ id: this.session.user.id, display_name: display.slice(0, 40) });
     else if (name && name !== data.display_name) await this.sb.from('profiles').update({ display_name: name.slice(0, 40) }).eq('id', this.session.user.id);
@@ -244,6 +254,55 @@ export class OnlineCommunity implements Community {
     return !error;
   }
 
+  // ---------------------------------------------------------------- shared pins and hazard reports
+  sharedPins: SharedPin[] = read('traillink.sharedPins', []);
+  myVotes: Record<string, 'there' | 'cleared'> = read('traillink.pinVotes', {});
+  /** Share (or update) a pin. Works offline: it uploads when there's signal. */
+  sharePin(p: PinUpload) { this.queue({ k: 'pin', p }); }
+  unsharePin(id: string) { this.sharedPins = this.sharedPins.filter(x => x.id !== id); write('traillink.sharedPins', this.sharedPins); this.queue({ k: 'unpin', id }); }
+  /** "Still there" or "Cleared". Shown right away; uploads when there's signal. */
+  votePin(id: string, v: 'there' | 'cleared') {
+    this.myVotes[id] = v; write('traillink.pinVotes', this.myVotes);
+    const p = this.sharedPins.find(x => x.id === id);
+    if (p) {
+      const now = new Date().toISOString();
+      if (v === 'cleared') Object.assign(p, { status: 'cleared', clearedBy: this.session?.user.id ?? null, clearedAt: now });
+      else Object.assign(p, { status: 'active', clearedBy: null, clearedAt: null, lastConfirmed: now, confirmations: p.confirmations + 1 });
+      write('traillink.sharedPins', this.sharedPins);
+    }
+    this.queue({ k: 'vote', id, v });
+  }
+  nameOf(riderId: string | null) {
+    if (!riderId) return 'a rider';
+    if (riderId === this.session?.user.id) return 'you';
+    return this.members.find(m => m.riderId === riderId)?.name ?? this.sharedPins.find(p => p.riderId === riderId)?.by ?? 'a rider';
+  }
+  async fetchSharedPins() {
+    if (!navigator.onLine || !this.session) return;
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const [pins, votes] = await Promise.all([
+      this.sb.from('shared_pins').select('*,profiles!shared_pins_rider_id_fkey(display_name)').or(`status.eq.active,cleared_at.gt.${since}`).limit(3000),
+      this.sb.from('hazard_votes').select('pin_id,vote').eq('rider_id', this.session.user.id),
+    ]);
+    if (pins.error) { console.warn('TrailLink: shared pins', pins.error); return; }
+    const pending = new Set(this.outbox.flatMap(o => (o.k === 'vote' ? [o.id] : [])));
+    const old = new Map(this.sharedPins.map(p => [p.id, p]));
+    this.sharedPins = (pins.data as Record<string, unknown>[]).map(r => {
+      const sp: SharedPin = {
+        id: String(r.id), audience: r.audience as SharedPin['audience'], groupId: (r.group_id as string) ?? null, kind: String(r.kind),
+        report: (r.report as string) ?? undefined, note: (r.note as string) ?? undefined, lat: Number(r.lat), lon: Number(r.lon), createdAt: String(r.created_at),
+        riderId: String(r.rider_id), by: (r.profiles as { display_name?: string } | null)?.display_name ?? 'Rider',
+        status: r.status as SharedPin['status'], clearedBy: (r.cleared_by as string) ?? null, clearedAt: (r.cleared_at as string) ?? null,
+        lastConfirmed: String(r.last_confirmed_at), confirmations: Number(r.confirmations),
+      };
+      // A vote still waiting to upload keeps showing its effect.
+      const o = old.get(sp.id);
+      return pending.has(sp.id) && o ? { ...sp, status: o.status, clearedBy: o.clearedBy, clearedAt: o.clearedAt, lastConfirmed: o.lastConfirmed, confirmations: o.confirmations } : sp;
+    });
+    write('traillink.sharedPins', this.sharedPins);
+    if (!votes.error) { this.myVotes = Object.fromEntries((votes.data as { pin_id: string; vote: 'there' | 'cleared' }[]).map(v => [v.pin_id, v.vote])); write('traillink.pinVotes', this.myVotes); }
+  }
+
   // ---------------------------------------------------------------- admin tools (need signal; the database checks the rider is an admin)
   private async rpc<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
     if (!navigator.onLine) throw new Error('No signal. Managing riders needs a connection.');
@@ -260,7 +319,8 @@ export class OnlineCommunity implements Community {
   private queue(op: Op) {
     // A newer change to the same thing replaces the older one.
     const key = (o: Op) => (o.k === 'rate' || o.k === 'unrate' ? `r:${o.tid}` : o.k === 'trail' ? `t:${o.t.id}` : o.k === 'deltrail' ? `t:${o.id}`
-      : o.k === 'vehicle' ? `v:${o.v.id}` : o.k === 'delvehicle' ? `v:${o.id}` : `c:${o.id}`);
+      : o.k === 'vehicle' ? `v:${o.v.id}` : o.k === 'delvehicle' ? `v:${o.id}`
+      : o.k === 'pin' ? `p:${o.p.id}` : o.k === 'unpin' ? `p:${o.id}` : o.k === 'vote' ? `pv:${o.id}` : `c:${o.id}`);
     this.outbox = [...this.outbox.filter(o => key(o) !== key(op)), op];
     write('traillink.outbox', this.outbox);
     void this.sync();
@@ -283,6 +343,12 @@ export class OnlineCommunity implements Community {
           geom: `SRID=4326;LINESTRING(${op.t.coords.map(([x, y]) => `${x} ${y}`).join(',')})`,
         }, { onConflict: 'id', ignoreDuplicates: true })
       : op.k === 'deltrail' ? await this.sb.from('rider_trails').delete().eq('id', op.id)
+      : op.k === 'pin' ? await this.sb.from('shared_pins').upsert({
+          id: op.p.id, audience: op.p.audience, group_id: op.p.groupId, kind: op.p.kind, report: op.p.report ?? null, note: op.p.note ?? null,
+          lat: op.p.lat, lon: op.p.lon, created_at: op.p.createdAt, updated_at: new Date().toISOString(),
+        }, { onConflict: 'id' })
+      : op.k === 'unpin' ? await this.sb.from('shared_pins').delete().eq('id', op.id)
+      : op.k === 'vote' ? await this.sb.from('hazard_votes').upsert({ pin_id: op.id, rider_id: uid, vote: op.v, voted_at: new Date().toISOString() }, { onConflict: 'pin_id,rider_id' })
       : await this.sb.from('trail_confirmations').insert({ trail_id: op.id });
     // The vehicle was deleted (or never uploaded): keep the rating and its rig score without the link.
     if (op.k === 'rate' && op.v && res.error?.code === '23503') res = await rating(null);
@@ -341,6 +407,7 @@ export class OnlineCommunity implements Community {
         .map(s => [s.tid, { avg: Number(s.avg), count: s.count, rig: s.rig_avg == null ? null : Number(s.rig_avg) }]));
       if (!model.error && model.data) { this.rigModel = { pairs: model.data.pairs, slope: model.data.slope == null ? null : Number(model.data.slope) }; write('traillink.rigModel', this.rigModel); }
       if (!mine.error) this.mergeVehicles(mine.data as Record<string, unknown>[]);
+      await this.fetchSharedPins();
       this.remote = (trails.data as RemoteTrailRow[]).map(r => ({
         id: r.id, name: r.name, difficulty: r.difficulty, vehicles: r.vehicles, notes: r.notes ?? undefined,
         createdBy: r.created_by, createdById: r.created_by_id, createdAt: r.created_at, coords: r.geometry.coordinates,

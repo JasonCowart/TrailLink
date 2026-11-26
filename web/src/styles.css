@@ -179,3 +179,7 @@ img.missing { visibility: hidden; }
 #placebar b { display: block; } #placebar span { font-size: 14px; color: var(--quiet); }
 #placebar .btns { margin: 8px 0 0; } #placebar .btns > button { flex: 1 1 70px; }
 .pin.report { background: #F59E0B; color: #1D221D; }
+.pin.shared { outline: 2px dashed #fff; outline-offset: -4px; opacity: .95; }
+.btns button.on { background: var(--pine); color: #fff; border-color: var(--pine); }
+details.cleared { margin: 8px 0; } details.cleared summary { font-weight: 700; color: var(--quiet); padding: 8px 0; cursor: pointer; }
+details.cleared .row { opacity: .7; }

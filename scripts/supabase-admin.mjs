@@ -97,6 +97,17 @@ try {
     if (!n) throw new Error('invite check function is missing; apply supabase/004-admin.sql first');
     await call('PATCH', '/config/auth', patch);
     console.log('Sign-in settings updated:'); await showAuth();
+  } else if (cmd === 'test-email') {
+    // Sends the admin a real sign-in email to prove the email setup works. The address is never printed.
+    const [admin] = await sql(`select u.email from auth.users u join public.profiles p on p.id = u.id where p.is_admin order by u.created_at limit 1`);
+    if (!admin?.email) throw new Error('no admin account found');
+    const cfg = readFileSync('web/src/config.ts', 'utf8');
+    const url = cfg.match(/https:\/\/[a-z0-9]+\.supabase\.co/)[0], key = cfg.match(/sb_publishable_[A-Za-z0-9_-]+/)[0];
+    const res = await fetch(`${url}/auth/v1/otp`, { method: 'POST', headers: { apikey: key, 'content-type': 'application/json' },
+      body: JSON.stringify({ email: admin.email, create_user: false }) });
+    const body = (await res.text()).replaceAll(admin.email, '<admin>').slice(0, 300);
+    if (!res.ok) throw new Error(`sign-in email failed: HTTP ${res.status} ${body}`);
+    console.log('Test sign-in email sent to the admin.');
   } else throw new Error(`unknown command ${cmd}`);
 } catch (e) {
   console.error(`::error::${e.message}`);

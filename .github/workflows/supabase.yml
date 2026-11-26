@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'status = look only; setup = apply database changes and sign-in settings'
+        description: 'status = look only; setup = apply database changes and sign-in settings; test-email = send the admin a sign-in email'
         type: choice
-        options: [status, setup]
+        options: [status, setup, test-email]
         default: status
 
 jobs:
@@ -35,3 +35,6 @@ jobs:
       - name: After
         if: inputs.action == 'setup'
         run: node scripts/supabase-admin.mjs status
+      - name: Send the admin a test sign-in email
+        if: inputs.action == 'test-email'
+        run: node scripts/supabase-admin.mjs test-email

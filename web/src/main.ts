@@ -11,7 +11,7 @@ import { OnlineCommunity, type AdminRider, type GroupMember, type SharedPin } fr
 import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload, savedAreas, storageSummary } from './offline.ts';
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from './photos.ts';
-import { REPORTS, REPORT_TYPES, reportIcon, type ReportType } from './reports.ts';
+import { REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
 import { BADGE_COLORS as BADGE_TRAIL_COLORS, BADGE_ICONS, MILESTONES, badgeSvg, bbox as badgeBbox, coverage, earnedOnRide, rodeIn, type BadgeIcon, type BadgeTrail, type RiderStats } from './badges.ts';
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
 
@@ -290,6 +290,8 @@ function legendPanelHtml(): string {
       <p class="quiet" style="margin:12px 0 4px"><b>Also on the map</b></p>
       <div class="legend">
         ${sw(line('#E8501A', '6 3'), 'Rider-created trail (dashed until verified)')}
+        ${sw(`<span style="width:34px;display:inline-flex;justify-content:center">${pinIcon('report', 'tree', 24)}</span>`, 'Pin or trail report (tap it for details)')}
+        ${sw(`<span style="width:34px;display:inline-flex;justify-content:center"><span class="mpin shared" style="display:inline-block">${pinIcon('report', 'water', 24)}</span></span>`, 'Dashed ring: shared by another rider')}
         ${sw('<span class="mk harder">▲</span>', 'Harder for your rig')}
         ${sw('<span class="mk easier">▼</span>', 'Easier for your rig')}
         ${sw('<span class="lgdot">12</span>', 'Zoomed out: number of trails nearby (tap to zoom in)')}
@@ -778,13 +780,15 @@ function drawPins() {
   for (const [id, m] of pinMarkers) if (!state.pins.find(p => p.id === id)) { m.remove(); pinMarkers.delete(id); }
   for (const p of state.pins) {
     if (sharedOf(p)?.status === 'cleared') { pinMarkers.get(p.id)?.remove(); pinMarkers.delete(p.id); continue; }
-    const label = `${p.photos?.length ? '📷 ' : ''}${pinTitle(p)}`, icon = p.kind === 'report' || p.kind === 'hazard' ? p.report ?? 'hazard' : '';
+    // Icon only on the map (names overlap); tap for details.
+    const key = `${p.kind}:${p.report ?? ''}:${p.photos?.length ? 1 : 0}`;
     const old = pinMarkers.get(p.id);
-    if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().textContent === label && old.getElement().dataset.icon === icon) continue; old.remove(); }
-    const el = document.createElement('div');
-    el.className = `pin ${p.kind}`;
-    el.dataset.icon = icon;
-    el.innerHTML = `${icon ? reportIcon(icon, 22) : ''}<span>${esc(label)}</span>`;
+    if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().dataset.key === key) continue; old.remove(); }
+    const el = document.createElement('button');
+    el.className = `mpin ${p.kind}`;
+    el.dataset.key = key;
+    el.setAttribute('aria-label', pinTitle(p));
+    el.innerHTML = `${pinIcon(p.kind, p.report, 34)}${p.photos?.length ? '<i class="hasphoto" aria-hidden="true"></i>' : ''}`;
     el.addEventListener('click', ev => { ev.stopPropagation(); pinSheet(p.id); });
     pinMarkers.set(p.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map));
   }
@@ -856,12 +860,14 @@ function drawRemotePins() {
   const show = othersPins().filter(p => p.status === 'active');
   for (const [id, m] of remoteMarkers) if (!show.some(p => p.id === id)) { m.remove(); remoteMarkers.delete(id); }
   for (const p of show) {
-    const label = `${sharedTitle(p)} · ${p.by}`, icon = REPORT_KINDS.has(p.kind) ? p.report ?? 'hazard' : '';
+    const key = `${p.kind}:${p.report ?? ''}`;
     const old = remoteMarkers.get(p.id);
-    if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().textContent === label) continue; old.remove(); }
-    const el = document.createElement('div');
-    el.className = `pin ${p.kind} shared`;
-    el.innerHTML = `${icon ? reportIcon(icon, 22) : ''}<span>${esc(label)}</span>`;
+    if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().dataset.key === key) continue; old.remove(); }
+    const el = document.createElement('button');
+    el.className = `mpin ${p.kind} shared`;
+    el.dataset.key = key;
+    el.setAttribute('aria-label', `${sharedTitle(p)}, from ${p.by}`);
+    el.innerHTML = pinIcon(p.kind, p.report, 34);
     el.addEventListener('click', ev => { ev.stopPropagation(); remotePinSheet(p.id); });
     remoteMarkers.set(p.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map));
   }

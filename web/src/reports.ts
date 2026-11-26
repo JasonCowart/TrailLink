@@ -18,6 +18,20 @@ export const REPORTS = {
 export type ReportType = keyof typeof REPORTS;
 export const REPORT_TYPES = Object.keys(REPORTS) as ReportType[];
 
+/** Icons for the other pin kinds, in the same style. */
+export const PIN_ICONS = {
+  regroup: { label: 'Regroup point', color: '#B4400F', path: '<path d="M5 21V4"/><path d="M5 4h11l-2 3.5L16 11H5"/>' },
+  note:    { label: 'Note', color: '#1F4D3A', path: '<path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4"/><path d="M8 9h8M8 13h5"/>' },
+  photo:   { label: 'Photo', color: '#1D4ED8', path: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>' },
+} as const;
+/** Icon tile for any pin: a report's own icon, or its kind's. */
+export function pinIcon(kind: string, report: string | undefined, size: number): string {
+  if (kind === 'report' || kind === 'hazard') return reportIcon(report ?? 'hazard', size);
+  const k = PIN_ICONS[kind as keyof typeof PIN_ICONS] ?? PIN_ICONS.note;
+  const inner = Math.round(size * 0.62);
+  return `<span class="ricon" style="--c:${k.color};width:${size}px;height:${size}px"><svg viewBox="0 0 24 24" width="${inner}" height="${inner}" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${k.path}</svg></span>`;
+}
+
 /** The report's line icon. With bg, it sits white on a round tile of its color (map pins, lists); without, it uses the current text color. */
 export function reportIcon(type: string | undefined, size = 24, bg = true): string {
   const r = REPORTS[(type ?? 'hazard') as ReportType] ?? REPORTS.hazard;

@@ -61,6 +61,7 @@ jobs:
           npx --yes supabase@latest functions deploy push --remote=yxcyqbxzggpejldkmdqe --no-verify-jwt --use-api --yes
           npx --yes supabase@latest functions deploy demo --remote=yxcyqbxzggpejldkmdqe --use-api --yes
           curl -s https://yxcyqbxzggpejldkmdqe.supabase.co/functions/v1/push | head -c 60; echo
+          KEY=$(grep -o "sb_publishable_[A-Za-z0-9_-]*" web/src/config.ts | head -1); curl -s -H "apikey: $KEY" https://yxcyqbxzggpejldkmdqe.supabase.co/functions/v1/demo; echo
       - name: Live messaging test
         if: inputs.action == 'test-messages'
         run: |

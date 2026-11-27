@@ -28,6 +28,7 @@ async function say(group: string, bot: string, body: string, replyTo?: string) {
 
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
+  if (req.method === 'GET') return json({ env: Object.keys(Deno.env.toObject()).filter(k => k.startsWith('SUPABASE')).sort() }); // names only, for setup checks
   // Only the admin, signed in.
   const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
   const { data: u } = await db.auth.getUser(token);

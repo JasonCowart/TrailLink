@@ -338,7 +338,7 @@ function basemapPanelHtml(): string {
   return `<h3>Base map</h3>
       <div class="seg" role="group" aria-label="Base map">${(Object.keys(BASE_MAPS) as BaseMapId[]).map(id => `<button data-base="${id}" aria-pressed="${state.base === id}">${BASE_MAPS[id].label}</button>`).join('')}</div>
       <h2>Offline maps</h2>
-      <p class="quiet">Zoom the map to where you'll ride, then save it while you have signal. Saved areas work with no signal.</p>
+      <p class="quiet">Save the area on screen to use it with no signal.</p>
       ${d ? `<div class="card"><b>Saving… ${d.done} of ${d.total}</b><div class="bar"><i style="width:${Math.round((d.done / Math.max(1, d.total)) * 100)}%"></i></div><div class="btns"><button data-act="cancel-dl">Cancel</button></div></div>`
           : `<div class="btns"><button class="primary" data-act="save-area">Save the area on screen</button></div>`}
       ${areas.map(a => `<div class="row"><div class="grow"><b>${esc(a.name)}</b><div class="quiet">Zoom ${a.minZ}–${a.maxZ} · ${a.tiles.toLocaleString()} pieces · ${new Date(a.savedAt).toLocaleDateString()}</div></div>
@@ -353,7 +353,7 @@ function openPanel(p: 'layers' | 'basemap' | 'legend' | 'riders') { sheet('', 'p
 function refreshPanel() {
   if (!state.panel || $('#sheet').hidden || typingIn('#sheet')) return;
   const body = $('#sheet-body'), top = body.scrollTop;
-  body.innerHTML = panelHtml(); body.scrollTop = top; fillStorage();
+  body.innerHTML = framed(panelHtml()); body.scrollTop = top; fillStorage();
 }
 function fillStorage() { if (state.panel === 'basemap') void storageSummary().then(s => { const el = document.getElementById('storage'); if (el) el.textContent = s; }); }
 
@@ -361,7 +361,6 @@ function fillStorage() { if (state.panel === 'basemap') void storageSummary().th
 function garageHtml(): string {
   const vs = community.garage(), active = community.activeVehicle();
   return `<h2>Your garage</h2>
-    <p class="quiet">Your setup changes how hard a trail feels. Ratings record the rig you rode, and trails show a forecast for yours.</p>
     ${vs.map(v => { const sc = rigScore(v), on = v.id === active?.id, open = state.openVehicles.has(v.id); return `<div class="vehicle${on ? ' on' : ''}">
       <button class="vhead" data-togglevehicle="${v.id}" aria-expanded="${open}">${badge(v.color)}<b>${esc(v.nickname)}</b>${on ? ' <span class="tag">Riding</span>' : ''}<span class="chev" aria-hidden="true">${open ? ICONS.chevUp : ICONS.chevDown}</span></button>
       ${open ? `<div class="vbody">
@@ -957,7 +956,7 @@ function reportGridHtml(act: string) {
 }
 function openReport() {
   sheet(`<h3>Report on the trail</h3>
-    <p class="quiet">Tap one to pin it ${state.pos ? 'where you are' : '(waiting for GPS: you can place it on the map)'}.</p>
+    <p class="quiet">${state.pos ? 'Tap one to pin it where you are.' : 'Waiting for GPS: you can place it on the map.'}</p>
     ${reportGridHtml('report')}
     <div class="btns"><button data-act2="reportplace">Place on map instead</button><button data-close>Cancel</button></div>`, 'report');
 }
@@ -1242,11 +1241,13 @@ function toast(msg: string) {
 }
 /** Pop-ups share one minimal layout: a close X at the top right instead of Done / Cancel / OK buttons. */
 const CLOSE_ONLY = /<button(?: type="button")?(?: class="primary")? data-close>(?:Done|Close|Cancel|OK|Got it|Nice!|Not now)<\/button>/g;
+function framed(html: string) {
+  return `<button class="ibtn sheetx" data-close aria-label="Close">${ICONS.x}</button>${html.replace(CLOSE_ONLY, '').replace(/<div class="btns">\s*<\/div>/g, '')}`;
+}
 function sheet(html: string, cls = '') {
   const s = $('#sheet'), body = $('#sheet-body');
   state.panel = null;
-  const tidy = html.replace(CLOSE_ONLY, '').replace(/<div class="btns">\s*<\/div>/g, '');
-  body.className = `dialog ${cls}`; body.innerHTML = `<button class="ibtn sheetx" data-close aria-label="Close">${ICONS.x}</button>${tidy}`; s.hidden = false;
+  body.className = `dialog ${cls}`; body.innerHTML = framed(html); s.hidden = false;
   body.querySelector<HTMLElement>('button')?.focus();
 }
 function closeSheet() { $('#sheet').hidden = true; state.panel = null; }

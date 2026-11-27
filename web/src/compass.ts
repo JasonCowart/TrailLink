@@ -62,7 +62,7 @@ export function compassHtml(heading: number, source: HeadingSource, marks: Compa
   const pins = marks.map(m => {
     const d = ((m.bearing - heading + 540) % 360) - 180;
     const off = Math.abs(d) > span / 2;
-    const x = off ? (d < 0 ? 10 : width - 10) : d * ppd + half;
+    const x = Math.min(width - 14, Math.max(14, off ? (d < 0 ? 0 : width) : d * ppd + half));
     return `<span class="cm ${m.kind}${off ? ' edge' : ''}" style="left:${x.toFixed(1)}px${m.color ? `;--c:${m.color}` : ''}" title="${m.title ?? ''}">${off ? (d < 0 ? '◂' : '▸') : ''}${m.label}</span>`;
   }).join('');
   const deg = Math.round(((heading % 360) + 360) % 360) % 360;

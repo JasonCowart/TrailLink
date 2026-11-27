@@ -829,7 +829,7 @@ function drawSpots() {
     const el = document.createElement('button'); el.className = 'spotmark';
     el.innerHTML = `${inl(ICONS.chat, 13)}<span>${esc(m.body.length > 26 ? `${m.body.slice(0, 24)}…` : m.body)}</span><i>${esc((m.riderId === community.uid ? 'You' : m.by).replace(/\s*\(test\)/, ''))}</i>`;
     el.addEventListener('click', ev => { ev.stopPropagation(); setChatOpen(true); });
-    spotMarkers.set(m.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([m.lon!, m.lat]).addTo(map));
+    spotMarkers.set(m.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([m.lon!, m.lat!]).addTo(map));
   }
 }
 

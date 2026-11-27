@@ -84,6 +84,7 @@ const community = new OnlineCommunity();
 const $ = <T extends HTMLElement = HTMLElement>(s: string) => document.querySelector(s) as T;
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
+(window as unknown as { __tlStarted?: boolean }).__tlStarted = true; // the page's load check (index.html) sees the app started
 // Dark mode check (defined before the map is created: the first map style depends on it).
 const darkQuery = matchMedia('(prefers-color-scheme: dark)');
 function isDark() { return state.theme === 'dark' || (state.theme === 'auto' && darkQuery.matches); }
@@ -97,7 +98,7 @@ function showFatal(msg: string) {
   document.body.append(d);
 }
 window.addEventListener('error', e => showFatal(e.message || 'unknown error'));
-window.addEventListener('unhandledrejection', e => { const m = String((e.reason as Error)?.message ?? e.reason ?? ''); if (/ReferenceError|TypeError|is not defined|Cannot read/i.test(m)) showFatal(m); });
+window.addEventListener('unhandledrejection', e => { const r = e.reason as Error; if (r instanceof ReferenceError || r instanceof TypeError || r instanceof SyntaxError) showFatal(r.message); });
 
 // ---------------------------------------------------------------- map
 const start = store.get<{ c: [number, number]; z: number }>('view', { c: [-105.0, 39.1], z: 9 }); // default: Colorado Front Range
@@ -2076,7 +2077,7 @@ window.addEventListener('offline', () => { state.online = false; renderChips(); 
 
 // ---------------------------------------------------------------- start
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => { navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {}); });
+  window.addEventListener('load', () => { navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { updateViaCache: 'none' }).then(r => r.update()).catch(() => {}); });
 }
 $('#btn-center').classList.add('active');
 // Test hook: open the app with #debug to reach the map from automated browser tests.

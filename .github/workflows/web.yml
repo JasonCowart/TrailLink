@@ -37,6 +37,14 @@ jobs:
       - name: Type check and build
         working-directory: web
         run: npm run build
+      - name: Keep the previous version's files (phones still running it can finish loading)
+        run: |
+          if git fetch -q --depth 1 origin web-build; then
+            for f in $(git show origin/web-build:index.html | grep -o 'assets/[A-Za-z0-9._-]*' | sort -u); do
+              [ -e "web/dist/$f" ] || git show "origin/web-build:$f" > "web/dist/$f" 2>/dev/null || true
+            done
+            echo "kept: $(ls web/dist/assets | wc -l) asset files"
+          fi
       - name: Keep a copy of the built site (for testing)
         uses: actions/upload-artifact@v4
         with:

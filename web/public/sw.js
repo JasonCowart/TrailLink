@@ -1,5 +1,5 @@
 // TrailLink service worker: makes the app open with no signal, and serves saved map tiles offline.
-const APP_CACHE = 'traillink-app-v5';
+const APP_CACHE = 'traillink-app-v6';
 const TILE_CACHE = 'traillink-tiles-v1'; // same name as src/offline.ts
 const RUNTIME_TILE_LIMIT = 3000; // tiles kept from normal browsing (saved areas are not trimmed)
 
@@ -60,9 +60,10 @@ self.addEventListener('fetch', event => {
     event.respondWith((async () => {
       const cache = await caches.open(APP_CACHE);
       try {
-        const res = await fetch(req);
-        if (res.ok) cache.put(req, res.clone());
-        return res;
+        // Pages always ask the server (skip the browser's 10-minute copy), so a new version can't pair an old page with missing files.
+        const res = await fetch(req, req.mode === 'navigate' ? { cache: 'no-cache' } : undefined);
+        if (res.ok) { cache.put(req, res.clone()); return res; }
+        return (await cache.match(req)) || res; // a file from an older version that's gone from the server: use the saved copy
       } catch {
         return (await cache.match(req)) || (req.mode === 'navigate' ? await cache.match(self.registration.scope) : undefined) || Response.error();
       }

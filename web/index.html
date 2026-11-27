@@ -76,5 +76,19 @@
 </div>
 <div id="sheet" class="overlay" hidden><div class="dialog" role="dialog" aria-modal="true" id="sheet-body"></div></div>
 <script type="module" src="./src/main.ts"></script>
+<script>
+  // If the app's code didn't start (for example a half-updated download), offer a clean reload instead of a blank screen.
+  setTimeout(function () {
+    if (window.__tlStarted) return;
+    var d = document.createElement('div');
+    d.style.cssText = 'position:fixed;left:12px;right:12px;top:40%;z-index:99;background:#1F4D3A;color:#fff;padding:16px;border-radius:14px;font:600 15px/1.35 system-ui;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.4)';
+    d.innerHTML = 'TrailLink didn\'t finish loading.<br><button style="margin-top:10px;min-height:44px;padding:0 18px;border:0;border-radius:12px;background:#E8501A;color:#fff;font:700 15px system-ui">Reload TrailLink</button>';
+    d.querySelector('button').onclick = function () {
+      var done = function () { location.reload(); };
+      if (window.caches) caches.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return k.indexOf('traillink-app-') === 0; }).map(function (k) { return caches.delete(k); })); }).then(done, done); else done();
+    };
+    document.body.appendChild(d);
+  }, 6000);
+</script>
 </body>
 </html>

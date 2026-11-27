@@ -2720,14 +2720,14 @@ function drawElevLine() {
   elevEl.hidden = false;
 }
 function elevFrom(e: PointerEvent) {
-  const pr = elevCache?.pr, svg = elevEl.querySelector('svg'); if (!pr || !svg) return;
+  const pr = elevCache?.pr, svg = elevEl.querySelector('.el-svg'); if (!pr || !svg) return;
   const r = svg.getBoundingClientRect();
   elevAt = indexAt(pr, Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * pr.total);
   scrubMarker.setLngLat([pr.lon[elevAt], pr.lat[elevAt]]); if (!scrubEl.isConnected) scrubMarker.addTo(map);
   drawElevLine();
 }
 elevEl.addEventListener('pointerdown', e => {
-  if (!(e.target as Element).closest('svg')) return;
+  if (!(e.target as Element).closest('.el-svg')) return;
   elevDrag = true; elevEl.setPointerCapture(e.pointerId); state.follow = false; $('#btn-center').classList.remove('active'); elevFrom(e);
 });
 elevEl.addEventListener('pointermove', e => { if (elevDrag) elevFrom(e); });

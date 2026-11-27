@@ -435,3 +435,34 @@ button.msgquote { display: flex; align-items: center; gap: 4px; max-width: 100%;
 #cdreply[hidden] { display: none; }
 #cdreply span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #cdreply .ibtn { width: 30px; height: 30px; border: 0; background: none; }
+
+/* Direction arrow on my dot (GPS course when moving, phone compass when stopped) */
+.me .arrow { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+.me .arrow::before { content: ''; position: absolute; left: -9px; top: -28px; border-left: 9px solid transparent; border-right: 9px solid transparent; border-bottom: 13px solid var(--orange);
+  filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1px #fff); }
+.me .arrow.compass::before { opacity: .8; }
+/* Halo-style compass bar across the top of the map */
+#compass { position: absolute; z-index: 2; top: var(--map-top); left: 10px; right: 76px; height: 40px; overflow: hidden; cursor: pointer; user-select: none; -webkit-user-select: none;
+  background: linear-gradient(90deg, rgba(20,26,22,0) 0%, rgba(20,26,22,.55) 18%, rgba(20,26,22,.55) 82%, rgba(20,26,22,0) 100%); border-radius: 10px; color: #fff; }
+#compass[hidden] { display: none; }
+#compass .ctape { position: absolute; inset: 0; }
+#compass .ct { position: absolute; top: 0; width: 1px; height: 6px; background: rgba(255,255,255,.55); }
+#compass .ct.mid { height: 9px; background: rgba(255,255,255,.8); }
+#compass .ct.major { height: 12px; width: 2px; margin-left: -1px; background: #fff; }
+#compass .cl, #compass .cn { position: absolute; top: 12px; transform: translateX(-50%); font: 700 12px/1 system-ui, sans-serif; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+#compass .cl.card { font-size: 14px; top: 11px; }
+#compass .cl.card:first-letter { color: inherit; }
+#compass .cn { font-size: 9px; font-weight: 600; opacity: .8; top: 13px; }
+#compass .cm { position: absolute; bottom: 2px; transform: translateX(-50%); min-width: 16px; height: 16px; padding: 0 3px; border-radius: 8px; display: grid; place-items: center;
+  font: 700 9px/16px system-ui, sans-serif; color: #fff; background: #2563EB; box-shadow: 0 0 0 1.5px #fff; white-space: nowrap; }
+#compass .cm.regroup { background: var(--action); min-width: 10px; width: 10px; height: 10px; padding: 0; border-radius: 2px; transform: translateX(-50%) rotate(45deg); bottom: 5px; }
+#compass .cm.edge { opacity: .85; }
+#compass .cneedle { position: absolute; left: 50%; top: 0; width: 0; height: 0; margin-left: -6px; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid var(--orange); }
+#compass .creadout { position: absolute; left: 50%; bottom: -1px; transform: translateX(-50%); font: 700 10px/1 system-ui, sans-serif; padding: 2px 5px 3px; border-radius: 5px 5px 0 0; background: rgba(0,0,0,.45); opacity: 0; }
+#compass .creadout.up { opacity: 1; background: var(--orange); }
+#compass .creadout.dim { opacity: 0; }
+#compass .chint { position: absolute; right: 10%; bottom: 3px; font-size: 9px; opacity: .75; }
+/* Everything else at the top moves under the compass bar */
+.chips { top: calc(var(--map-top) + 46px); }
+.maplibregl-ctrl-top-left { top: calc(var(--map-top) + 72px); }
+#toast { top: calc(var(--map-top) + 46px); }

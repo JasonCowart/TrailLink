@@ -13,6 +13,7 @@ import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from '
 import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from './photos.ts';
 import { Backup, type Change } from './backup.ts';
 import { GroupChat, QUICK, type ChatMessage } from './messages.ts';
+import { PhoneCompass, compassHtml, type CompassMark, type HeadingSource } from './compass.ts';
 import { PIN_ICONS, REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
 import { FT, GRADES, MI, buildProfile, distAtX, indexAt, profileSvg, scrubXY, W as PROFILE_W, type Profile, type ProfileMark } from './profile.ts';
 // Small line icons for compact buttons.
@@ -69,6 +70,7 @@ const state = {
   wakeLock: null as WakeLockSentinel | null,
   keepAwake: store.get('keepAwake', true),
   /** Ride shown in the elevation profile (null: the ride being recorded, else the latest ride). */
+  compass: store.get('compass', true),
   viewRide: null as string | null,
   scrubI: null as number | null,
   scrubbing: false,
@@ -128,6 +130,10 @@ function addOverlays() {
   if (!map.getLayer('track')) map.addLayer({ id: 'track', type: 'line', source: 'track', paint: { 'line-color': '#0EA5E9', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
   // Group riders who are sharing their location.
   if (!map.getSource('riders')) map.addSource('riders', { type: 'geojson', data: ridersGeo() });
+  // Direction arrows just outside each moving rider's dot (drawn under the dot).
+  if (!map.hasImage('rider-arrow')) map.addImage('rider-arrow', riderArrowImage(), { pixelRatio: 2 });
+  if (!map.getLayer('riders-arrow')) map.addLayer({ id: 'riders-arrow', type: 'symbol', source: 'riders', filter: ['has', 'heading'],
+    layout: { 'icon-image': 'rider-arrow', 'icon-rotate': ['get', 'heading'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true } });
   if (!map.getLayer('riders-dot')) map.addLayer({ id: 'riders-dot', type: 'circle', source: 'riders', paint: {
     'circle-radius': 14, 'circle-color': '#2563EB', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3, 'circle-opacity': ['case', ['get', 'stale'], 0.45, 1], 'circle-stroke-opacity': ['case', ['get', 'stale'], 0.6, 1] } });
   if (!map.getLayer('riders-label')) map.addLayer({ id: 'riders-label', type: 'symbol', source: 'riders',
@@ -302,6 +308,7 @@ function layersPanelHtml(): string {
     : state.colorBy === 'community' ? 'The riders\' rating. Grey trails aren\'t rated yet.' : 'Who may legally ride each route.';
   return `<h3>Trails</h3>
       <label class="tg">OHV trails and roads <input type="checkbox" data-set="trails" ${state.trails ? 'checked' : ''}></label>
+      <label class="tg">Compass bar <input type="checkbox" data-set="compass" ${state.compass ? 'checked' : ''}></label>
       <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
       <p class="quiet" style="margin:12px 0 4px"><b>Color trails by</b></p>
       <div class="seg seg4" role="group" aria-label="Color trails by">
@@ -440,11 +447,12 @@ function ridersGeo(): FeatureCollection {
   const me = community.session?.user.id;
   return { type: 'FeatureCollection', features: community.members.filter(m => m.pos && m.sharing && m.riderId !== me).map(m => {
     const stale = Date.now() - Date.parse(m.pos!.at) > STALE_MIN * 60000;
-    return { type: 'Feature', properties: { id: m.riderId, initials: initials(m.name), label: stale ? `${m.name} · ${ago(m.pos!.at)}` : m.name, stale },
+    const moving = !stale && m.pos!.heading != null && Number.isFinite(m.pos!.heading) && (m.pos!.speed ?? 0) > 0.5;
+    return { type: 'Feature', properties: { id: m.riderId, initials: initials(m.name), label: stale ? `${m.name} · ${ago(m.pos!.at)}` : m.name, stale, ...(moving ? { heading: m.pos!.heading } : {}) },
       geometry: { type: 'Point', coordinates: [m.pos!.lon, m.pos!.lat] } };
   }) };
 }
-function drawRiders() { (map.getSource('riders') as GeoJSONSource | undefined)?.setData(ridersGeo()); refreshPanel(); }
+function drawRiders() { (map.getSource('riders') as GeoJSONSource | undefined)?.setData(ridersGeo()); refreshPanel(); drawHeading(); }
 
 let lastShare = 0, lastSharedAt: { lat: number; lon: number } | null = null;
 /** While sharing: send my position every 15 s when moving, at least once a minute when parked. */
@@ -969,10 +977,76 @@ function trackGeo(): FeatureCollection {
 }
 function refreshTrack() { (map.getSource('track') as GeoJSONSource | undefined)?.setData(trackGeo()); }
 
+// ---------------------------------------------------------------- heading arrows and the compass bar
+/** A blue pointer drawn just outside a rider's dot, pointing up (the map rotates it to their heading). */
+function riderArrowImage(): ImageData {
+  const S = 112, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d')!, mid = S / 2;
+  g.beginPath(); g.moveTo(mid, 2); g.lineTo(mid + 15, 22); g.lineTo(mid, 17); g.lineTo(mid - 15, 22); g.closePath();
+  g.lineJoin = 'round'; g.lineWidth = 5; g.strokeStyle = '#fff'; g.stroke(); g.fillStyle = '#2563EB'; g.fill();
+  return g.getImageData(0, 0, S, S);
+}
+const phoneCompass = new PhoneCompass();
+let headingUp = false;
+/** Which way I'm heading: GPS course when moving (best on a moving vehicle), else the phone's compass, else the map. */
+function myHeading(): { deg: number; source: HeadingSource } {
+  const p = state.pos;
+  if (p && p.heading != null && Number.isFinite(p.heading) && (p.speed ?? 0) > 1.5) return { deg: p.heading, source: 'gps' };
+  if (phoneCompass.live) return { deg: phoneCompass.heading!, source: 'compass' };
+  return { deg: map.getBearing(), source: 'map' };
+}
+const compassEl = document.createElement('div');
+compassEl.id = 'compass';
+compassEl.setAttribute('role', 'button');
+compassEl.setAttribute('aria-label', 'Compass. Tap to turn the map with your heading.');
+$('#mapwrap').append(compassEl);
+let compassFrame = 0;
+function drawHeading() {
+  if (compassFrame) return;
+  compassFrame = requestAnimationFrame(() => {
+    compassFrame = 0;
+    const h = myHeading();
+    // My arrow: shown whenever the heading is real (GPS course or phone compass).
+    const arrow = meEl.querySelector<HTMLElement>('.arrow')!;
+    arrow.hidden = h.source === 'map';
+    arrow.style.rotate = `${h.deg - map.getBearing()}deg`;
+    arrow.classList.toggle('compass', h.source === 'compass');
+    if (headingUp && h.source !== 'map' && Math.abs(((h.deg - map.getBearing() + 540) % 360) - 180) > 3) map.rotateTo(h.deg, { duration: 300 });
+    // The compass bar.
+    compassEl.hidden = !state.compass;
+    if (!state.compass) return;
+    const marks: CompassMark[] = [];
+    const me = state.pos;
+    if (me) {
+      for (const m of community.members) if (m.pos && m.sharing && m.riderId !== community.uid) marks.push({ bearing: bearingDeg(me, m.pos), label: esc(initials(m.name)), kind: 'rider', title: `${esc(m.name)} · ${(distanceM(me, m.pos) / 1609.344).toFixed(1)} mi` });
+      for (const p of state.pins) if (p.kind === 'regroup') marks.push({ bearing: bearingDeg(me, p), label: '', kind: 'regroup', title: 'Regroup point' });
+    }
+    compassEl.innerHTML = compassHtml(h.deg, h.source, marks, compassEl.clientWidth || 260, headingUp)
+      + (h.source === 'map' && phoneCompass.needsPermission ? '<span class="chint">Tap for compass</span>' : '');
+  });
+}
+phoneCompass.onChange = drawHeading;
+map.on('rotate', drawHeading);
+map.on('rotatestart', e => { if ((e as { originalEvent?: Event }).originalEvent && headingUp) { headingUp = false; drawHeading(); } });
+compassEl.addEventListener('click', async () => {
+  if (phoneCompass.needsPermission || !phoneCompass.started) {
+    const ok = await phoneCompass.start();
+    if (!ok) toast('Compass not allowed. The bar follows your GPS direction while you move.');
+    else if (!headingUp) { toast('Compass on. Tap the bar again to turn the map with your heading.'); drawHeading(); return; }
+  }
+  headingUp = !headingUp;
+  if (!headingUp) map.rotateTo(0, { duration: 400 });
+  toast(headingUp ? 'Map turns with your heading. Tap the bar again for north up.' : 'North up.');
+  drawHeading();
+});
+// Android and desktop don't need a tap to read the compass.
+if (!phoneCompass.needsPermission) void phoneCompass.start();
+setInterval(drawHeading, 5000); // riders' bearings change as everyone moves
+
 // ---------------------------------------------------------------- my position
 const meEl = document.createElement('div');
 meEl.className = 'me';
-meEl.innerHTML = '<div class="cone" hidden></div>';
+meEl.innerHTML = '<div class="arrow" hidden></div>';
 meEl.setAttribute('aria-label', 'Your position');
 const meMarker = new maplibregl.Marker({ element: meEl });
 
@@ -981,8 +1055,7 @@ function onPosition(p: GeolocationPosition) {
   state.pos = { lat: c.latitude, lon: c.longitude, acc: Math.round(c.accuracy), alt: c.altitude ?? undefined, speed: c.speed ?? undefined, heading: c.heading ?? undefined, t: p.timestamp };
   meMarker.setLngLat([c.longitude, c.latitude]);
   if (!meMarker.getElement().isConnected) meMarker.addTo(map);
-  const cone = meEl.querySelector<HTMLElement>('.cone')!;
-  if (c.heading != null && !Number.isNaN(c.heading) && (c.speed ?? 0) > 1) { cone.hidden = false; cone.style.rotate = `${c.heading}deg`; } else cone.hidden = true;
+  drawHeading();
   if (state.follow) map.easeTo({ center: [c.longitude, c.latitude], zoom: Math.max(map.getZoom(), 13), duration: 600 });
   if (state.recording) {
     const pt: Pt = { lat: c.latitude, lon: c.longitude, t: p.timestamp, alt: c.altitude ?? undefined };
@@ -1735,6 +1808,7 @@ function paneChange(e: Event) {
   if (t.dataset.set === 'trails') { state.trails = t.checked; store.set('trails', t.checked); for (const l of [...TRAIL_LAYERS, ...OVERVIEW_LAYERS]) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', t.checked ? 'visible' : 'none'); if (!t.checked) popup.remove(); applyRigMarks(); }
   if (t.dataset.set === 'rigMarks') { state.rigMarks = t.checked; store.set('rigMarks', t.checked); applyRigMarks(); renderPane(); }
   if (t.dataset.set === 'mvum') { state.mvum = t.checked; store.set('mvumImage', t.checked); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', t.checked ? 'visible' : 'none'); }
+  if (t.dataset.set === 'compass') { state.compass = t.checked; store.set('compass', t.checked); drawHeading(); }
   if (t.dataset.set === 'keepAwake') { state.keepAwake = t.checked; store.set('keepAwake', t.checked); void applyWakeLock(); }
 }
 $('#pane').addEventListener('change', paneChange);
@@ -1899,7 +1973,7 @@ $('#btn-center').classList.add('active');
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state, chat, riderBubble, setChatOpen } });
 // ---------------------------------------------------------------- account backup (pins, rides, settings, photos)
 // Settings that follow the rider between phones (map position, panel and install prompts stay per phone).
-const SYNCED_SETTINGS = ['base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
+const SYNCED_SETTINGS = ['compass', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
 function applySettings(keys: string[]) {
   for (const k of keys) {
     if (k === 'base') { const b = store.get<BaseMapId>('base', 'topo'); if (b !== state.base && b in BASE_MAPS) setBase(b); }
@@ -1907,6 +1981,7 @@ function applySettings(keys: string[]) {
     if (k === 'trails') { state.trails = store.get('trails', true); for (const l of [...TRAIL_LAYERS, ...OVERVIEW_LAYERS]) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', state.trails ? 'visible' : 'none'); }
     if (k === 'rigMarks') { state.rigMarks = store.get('rigMarks', true); applyRigMarks(); }
     if (k === 'mvumImage') { state.mvum = store.get('mvumImage', false); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', state.mvum ? 'visible' : 'none'); }
+    if (k === 'compass') { state.compass = store.get('compass', true); drawHeading(); }
     if (k === 'keepAwake') { state.keepAwake = store.get('keepAwake', true); void applyWakeLock(); }
     if (k === 'loosePhotos') loosePhotos = store.get('loosePhotos', []);
     if (k === 'activeVehicle') { const id = store.get<string | null>('activeVehicle', null); if (id && community.garage().some(v => v.id === id)) community.setActive(id); }

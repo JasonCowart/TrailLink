@@ -678,3 +678,6 @@ button.spotmark::after { content: ''; position: absolute; left: -4px; bottom: -4
 @keyframes cstrobe { 0%, 8%, 20%, 28% { background: #FF2A2A; box-shadow: 0 0 12px 4px rgba(255,42,42,.95); } 4%, 24% { background: #fff; color: #EF4444; box-shadow: 0 0 16px 6px rgba(255,255,255,.9); } 40%, 100% { background: #B91C1C; box-shadow: 0 0 6px rgba(239,68,68,.8); } }
 @keyframes cring { 0% { opacity: .9; transform: translate(-50%, -50%) scale(1); } 70%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(2.2); } }
 @media (prefers-reduced-motion: reduce) { #compass .cm.hazard, #compass .cm.hazard::after { animation: none; } }
+/* Side map buttons shrink, then drop Legend and Riders, when the map is short (panel open). */
+.fabs.compact { gap: 6px; } .fabs.compact .fab { width: 44px; height: 44px; } .fabs.compact .fab svg { width: 21px; height: 21px; }
+.fabs.nolegend #btn-legend, .fabs.noriders #btn-riders { display: none; }

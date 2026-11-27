@@ -2647,3 +2647,18 @@ render();
 map.on('load', drawPins);
 startGps();
 void applyWakeLock();
+
+// ---------------------------------------------------------------- map buttons fit the map
+// When the panel is open the map gets short: shrink the side buttons, then drop the ones also reachable
+// elsewhere (Legend is in the Layers panel, Riders in the Group tab), so they never spill over the tabs.
+function fitFabs() {
+  const fabs = document.querySelector<HTMLElement>('.fabs'), rep = $('#btn-report');
+  if (!fabs) return;
+  const steps = ['compact', 'nolegend', 'noriders'];
+  fabs.classList.remove(...steps);
+  const room = () => rep.getBoundingClientRect().top - fabs.getBoundingClientRect().top - 10;
+  for (const s of steps) { if (fabs.scrollHeight <= room()) break; fabs.classList.add(s); }
+}
+new ResizeObserver(() => fitFabs()).observe($('#mapwrap'));
+new MutationObserver(() => fitFabs()).observe($('#mapwrap'), { attributes: true, attributeFilter: ['class'] });
+fitFabs();

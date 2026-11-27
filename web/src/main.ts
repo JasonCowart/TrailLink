@@ -308,9 +308,9 @@ function legendPanelHtml(): string {
       <p class="quiet" style="margin:12px 0 4px"><b>Also on the map</b></p>
       <div class="legend">
         ${sw(line('#E8501A', '6 3'), 'Rider-created trail (dashed until verified)')}
-        ${sw(`<span class="lgpin">${pinIcon('report', 'tree', 28)}</span>`, 'Pin or trail report (tap it for details)')}
-        ${sw(`<span class="lgpin shared">${pinIcon('report', 'water', 28)}</span>`, 'Dashed ring: shared by another rider')}
-        ${sw(`<span class="lgpin">${pinIcon('regroup', undefined, 28)}<i class="hasphoto">${ICONS.camera}</i></span>`, 'Camera badge: pin has photos')}
+        ${sw(`<span class="lgpin">${pinIcon('report', 'tree', 26)}</span>`, 'Pin or trail report (tap it for details)')}
+        ${sw(`<span class="lgpin shared">${pinIcon('report', 'water', 26)}</span>`, 'Dashed ring: shared by another rider')}
+        ${sw(`<span class="lgpin">${pinIcon('regroup', undefined, 26)}<i class="hasphoto">${ICONS.camera}</i></span>`, 'Camera badge: pin has photos')}
         ${sw('<span class="mk harder">▲</span>', 'Harder for your rig')}
         ${sw('<span class="mk easier">▼</span>', 'Easier for your rig')}
         ${sw('<span class="lgdot">12</span>', 'Zoomed out: number of trails nearby (tap to zoom in)')}

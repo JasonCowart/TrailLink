@@ -280,7 +280,7 @@ svg.inl { vertical-align: -3px; margin-right: 2px; flex: none; }
 @media (prefers-reduced-motion: reduce) { .chip.rec .recdot { animation: none; } }
 
 /* Legend: map pins shown on a small dark map-colored tile, so the white rings read the way they do on the map */
-.legend .lgpin { position: relative; width: 38px; height: 38px; flex: none; display: grid; place-items: center; border-radius: 10px; background: #4B5A44; }
+.legend .lgpin { position: relative; width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 10px; background: #4B5A44; }
 .legend .lgpin .ricon { box-sizing: border-box; border: 3px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
 .legend .lgpin.shared .ricon { border-style: dashed; }
 .legend .lgpin .ricon svg { width: 62%; height: 62%; }

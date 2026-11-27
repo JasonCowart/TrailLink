@@ -1140,7 +1140,7 @@ function trailLines(): number[][][] {
 async function computeRoute(from: LL, to: LL): Promise<Route> {
   // Make sure the trail tiles between here and there are loaded: show both ends, wait for the map to settle.
   const b = new maplibregl.LngLatBounds([from.lon, from.lat], [from.lon, from.lat]).extend([to.lon, to.lat]);
-  map.fitBounds(b, { padding: 70, maxZoom: 15, duration: 0 });
+  map.fitBounds(b, { padding: viewPad(40), maxZoom: 15, duration: 0 });
   if (map.getZoom() < 10) map.setZoom(10);
   await new Promise<void>(r => { const t = setTimeout(r, 5000); map.once('idle', () => { clearTimeout(t); r(); }); });
   const tracks = [state.recording, ...state.tracks].filter(Boolean).map(t => t!.points as LL[]);
@@ -1959,12 +1959,28 @@ function afterRidePane() {
   if (state.tab !== 'ride' || !shownProfile) { scrubMarker.remove(); return; }
   if (state.scrubI != null) setScrub(state.scrubI);
 }
+// Padding that keeps a fitted area inside the open part of the map: below the compass and chips,
+// above the SOS / chat / Report row and any panel covering the map, and clear of the side buttons.
+function viewPad(extra = 16) {
+  const m = $('#map').getBoundingClientRect();
+  const vis = (el: Element | null) => { if (!el) return null; const r = (el as HTMLElement).getBoundingClientRect(); return r.width && r.height && r.bottom > m.top && r.top < m.bottom ? r : null; };
+  let top = 0, bottom = 0, right = 0;
+  for (const el of [compassEl, $('#chips'), document.querySelector('#guide'), document.querySelector('#helpbanner')]) { const r = vis(el); if (r && r.top < m.top + m.height / 2) top = Math.max(top, r.bottom - m.top); }
+  for (const sel of ['#btn-sos', '#btn-report', '#chatpill', '#groupline', '#panel']) { const r = vis(document.querySelector(sel)); if (r && r.top > m.top + m.height / 2) bottom = Math.max(bottom, m.bottom - r.top); }
+  const f = vis(document.querySelector('.fabs')); if (f) right = Math.max(0, m.right - f.left);
+  const pad = { top: top + extra, bottom: bottom + extra, left: extra + 8, right: right + extra };
+  // Tiny screens: never let the padding swallow the map.
+  const h = m.height - pad.top - pad.bottom, w = m.width - pad.left - pad.right;
+  if (h < 80) { const k = Math.max(0, (m.height - 80) / (pad.top + pad.bottom)); pad.top *= k; pad.bottom *= k; }
+  if (w < 80) { const k = Math.max(0, (m.width - 80) / (pad.left + pad.right)); pad.left *= k; pad.right *= k; }
+  return pad;
+}
 function fitRide() {
   const t = profileRide(); if (!t || t.points.length < 2) return;
   const b = new maplibregl.LngLatBounds();
   for (const p of t.points) b.extend([p.lon, p.lat]);
   state.follow = false; $('#btn-center').classList.remove('active');
-  map.fitBounds(b, { padding: 50, duration: 600 });
+  map.fitBounds(b, { padding: viewPad(24), duration: 600 });
 }
 // Drag on the chart: the dot moves along the ride on the map. Vertical swipes still scroll the panel.
 function scrubFrom(e: PointerEvent) {
@@ -2291,7 +2307,7 @@ function paneClick(e: Event) {
   if (act === 'signout') void community.signOut().then(() => { state.signin = null; renderPane(); });
   if (act === 'signin-back') { state.signin = state.signin ? { ...state.signin, sent: false, error: undefined } : null; renderPane(); }
   if (act === 'rename') sheet(`<h3>Your name</h3><form id="renameform" class="form"><label>Shown as "created by" on your trails<input name="name" required maxlength="40" value="${esc(community.me()?.name ?? '')}"></label><div class="btns"><button type="button" data-close>Cancel</button><button class="primary">Save</button></div></form>`);
-  if (b.dataset.showtrail) { const t = community.trails().find(x => x.id === b.dataset.showtrail); if (t) { state.follow = false; const xs = t.coords.map(c => c[0]), ys = t.coords.map(c => c[1]); map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: 60, maxZoom: 15 }); } }
+  if (b.dataset.showtrail) { const t = community.trails().find(x => x.id === b.dataset.showtrail); if (t) { state.follow = false; const xs = t.coords.map(c => c[0]), ys = t.coords.map(c => c[1]); map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: viewPad(24), maxZoom: 15 }); } }
   if (b.dataset.deltrail) { const t = community.trails().find(x => x.id === b.dataset.deltrail); if (t) sheet(`<h3>Delete ${esc(t.name)}?</h3><p>This removes the trail from this phone.</p><div class="btns"><button data-close>Keep it</button><button class="danger" data-act2="deltrail" data-id="${t.id}">Delete</button></div>`); }
   if (b.dataset.gpx) downloadGpx(b.dataset.gpx);
   if (b.dataset.viewride) { state.viewRide = b.dataset.viewride; state.scrubI = null; scrubMarker.remove(); renderPane(); fitRide(); return; }
@@ -2304,7 +2320,7 @@ function paneClick(e: Event) {
   if (b.dataset.shared) remotePinSheet(b.dataset.shared);
   if (b.dataset.goto) { const p = state.pins.find(x => x.id === b.dataset.goto); if (p) { state.follow = false; map.flyTo({ center: [p.lon, p.lat], zoom: 15 }); } }
   if (b.dataset.forget) { forgetArea(b.dataset.forget); renderPane(); }
-  if (b.dataset.showarea) { const a = savedAreas().find(x => x.id === b.dataset.showarea); if (a) { state.follow = false; closeSheet(); map.fitBounds([[a.bounds.w, a.bounds.s], [a.bounds.e, a.bounds.n]]); } }
+  if (b.dataset.showarea) { const a = savedAreas().find(x => x.id === b.dataset.showarea); if (a) { state.follow = false; closeSheet(); map.fitBounds([[a.bounds.w, a.bounds.s], [a.bounds.e, a.bounds.n]], { padding: viewPad() }); } }
 }
 $('#pane').addEventListener('click', paneClick);
 $('#sheet').addEventListener('click', e => { if (state.panel) paneClick(e); });
@@ -2404,7 +2420,7 @@ $('#sheet').addEventListener('click', e => {
   if (b.dataset.vote && b.dataset.tid) { void vote(b.dataset.tid, Number(b.dataset.vote)); return; }
   if (b.dataset.act2 === 'deltrail' && b.dataset.id) { void community.deleteTrail(b.dataset.id).then(() => { closeSheet(); popup.remove(); refreshRiderTrails(); renderPane(); }); return; }
   if (b.dataset.act2 === 'seebadges') { closeSheet(); state.tab = 'badges'; setPanel(true); render(); $('#pane').scrollTop = 0; return; }
-  if (b.dataset.act2 === 'badgemap' && b.dataset.id) { const t = community.badgeTrails.find(x => x.id === b.dataset.id); if (t) { const bb = badgeBbox(t.geom); closeSheet(); state.follow = false; map.fitBounds([[bb.w, bb.s], [bb.e, bb.n]], { padding: 50 }); } return; }
+  if (b.dataset.act2 === 'badgemap' && b.dataset.id) { const t = community.badgeTrails.find(x => x.id === b.dataset.id); if (t) { const bb = badgeBbox(t.geom); closeSheet(); state.follow = false; map.fitBounds([[bb.w, bb.s], [bb.e, bb.n]], { padding: viewPad(24) }); } return; }
   if (b.dataset.act2 === 'badgeedit' && b.dataset.id) { const t = community.badgeTrails.find(x => x.id === b.dataset.id); if (t) badgeTrailForm(t.tids[0] ?? '', t); return; }
   if (b.dataset.act2 === 'badgeremove' && b.dataset.id) { void community.removeBadgeTrail(b.dataset.id).then(() => { closeSheet(); toast('Badge trail removed. Riders keep badges they earned.'); }, (err: Error) => toast(err.message)); return; }
   if (b.dataset.act2 === 'pinvote' && b.dataset.id) {

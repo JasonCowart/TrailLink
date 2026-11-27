@@ -640,3 +640,5 @@ button.spotmark::after { content: ''; position: absolute; left: -4px; bottom: -4
 .maplibregl-ctrl-top-left { top: calc(var(--map-top) + 92px); }
 #mapwrap.helpon .chips, #mapwrap.helpon #toast, #mapwrap.helpon #guide { top: calc(var(--map-top) + 126px); }
 #mapwrap.helpon .maplibregl-ctrl-top-left { top: calc(var(--map-top) + 152px); }
+/* Unread count on the chat bar: upright numbers (the earlier font rule was invalid, so it fell back to italics) */
+#chatpill .cpcount { font: 700 12px/20px system-ui, -apple-system, sans-serif; font-style: normal; }

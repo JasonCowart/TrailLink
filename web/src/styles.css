@@ -627,3 +627,16 @@ button.spotmark::after { content: ''; position: absolute; left: -4px; bottom: -4
 #toast, #guide, #headsup, #helpbanner { top: calc(var(--map-top) + 54px); }
 #mapwrap.helpon .chips, #mapwrap.helpon #toast, #mapwrap.helpon #guide { top: calc(var(--map-top) + 114px); }
 #mapwrap.helpon .maplibregl-ctrl-top-left { top: calc(var(--map-top) + 140px); }
+/* Compass rows, top to bottom: riders and other marks, tick marks + needle, letters/degrees, heading readout */
+#compass { height: 62px; }
+#compass .cm { top: 2px; bottom: auto; }
+#compass .cm.regroup, #compass .cm.dest { top: 5px; bottom: auto; }
+#compass .ctape::after { top: 20px; }
+#compass .ct { top: 20px; }
+#compass .cneedle { top: 20px; }
+#compass .cl { top: 31px; } #compass .cl.card { top: 30px; } #compass .cn { top: 32px; }
+#compass .creadout { bottom: 1px; }
+.fabs, .chips, #toast, #guide, #headsup, #helpbanner { top: calc(var(--map-top) + 66px); }
+.maplibregl-ctrl-top-left { top: calc(var(--map-top) + 92px); }
+#mapwrap.helpon .chips, #mapwrap.helpon #toast, #mapwrap.helpon #guide { top: calc(var(--map-top) + 126px); }
+#mapwrap.helpon .maplibregl-ctrl-top-left { top: calc(var(--map-top) + 152px); }

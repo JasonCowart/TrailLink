@@ -70,7 +70,9 @@ export function compassHtml(heading: number, source: HeadingSource, marks: Compa
     const lo = width * 0.14, hi = width * 0.86; // inside the faded edges
     const x = Math.min(hi, Math.max(lo, off ? (d < 0 ? 0 : width) : d * ppd + half));
     const dist = m.meters == null ? '' : `<span class="cdist ${m.kind}" style="left:${x.toFixed(1)}px">${fmtDist(m.meters)}</span>`;
-    return `${dist}<span class="cm ${m.kind}${off ? ' edge' : ''}" style="left:${x.toFixed(1)}px${m.color ? `;--c:${m.color}` : ''}" title="${m.title ?? ''}">${off ? (d < 0 ? '◂' : '▸') : ''}${m.label}</span>`;
+    // The bar redraws many times a second: the strobe keeps time with the clock so redraws don't restart it.
+    const sync = m.kind === 'hazard' ? `;--sd:-${Date.now() % 1600}ms` : '';
+    return `${dist}<span class="cm ${m.kind}${off ? ' edge' : ''}" style="left:${x.toFixed(1)}px${m.color ? `;--c:${m.color}` : ''}${sync}" title="${m.title ?? ''}">${off ? (d < 0 ? '◂' : '▸') : ''}${m.label}</span>`;
   }).join('');
   const deg = Math.round(((heading % 360) + 360) % 360) % 360;
   return `<div class="ctape">${ticks}${pins}</div><div class="cneedle"></div>

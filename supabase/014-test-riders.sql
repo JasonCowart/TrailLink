@@ -30,3 +30,12 @@ begin
    where coalesce(u.email, '') not like '%@test-riders.traillink.invalid'
    order by u.created_at is null, coalesce(p.display_name, i.email, u.email::text);
 end $$;
+
+-- The server functions (notifications, test riders) run as Supabase's service role: it needs table access.
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    execute 'grant usage on schema public to service_role';
+    execute 'grant select, insert, update, delete on all tables in schema public to service_role';
+    execute 'alter default privileges in schema public grant select, insert, update, delete on tables to service_role';
+  end if;
+end $$;

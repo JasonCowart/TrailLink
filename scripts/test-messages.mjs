@@ -120,6 +120,8 @@ try {
   await fn(maria, { action: 'tick', lat: 38.57, lon: -109.55 });
   const msgs = await rest(maria, `group_messages?select=rider_id,body,reply_to&group_id=eq.${tg.id}&order=created_at`);
   check(msgs.length >= 3 && msgs[msgs.length - 1].rider_id !== maria.uid, `a test rider answers the admin (${msgs.length} messages)`);
+  const reads = await rest(maria, `group_reads?select=rider_id&group_id=eq.${tg.id}`);
+  check(Array.isArray(reads) && reads.length === 3, `test riders mark the chat seen (${Array.isArray(reads) ? reads.length : JSON.stringify(reads).slice(0, 80)})`);
   const pos2 = await rest(maria, `group_positions?select=rider_id,lat&group_id=eq.${tg.id}`);
   check(pos2.length === 3, 'test riders keep moving on each tick');
   await fn(maria, { action: 'stop' });

@@ -2716,7 +2716,7 @@ function drawElevLine() {
   if (at == null && state.pos) { const i = indexNear(pr, state.pos.lat, state.pos.lon); if (distanceM(state.pos, { lat: pr.lat[i], lon: pr.lon[i] }) < 60) at = i; }
   const info = at == null ? `${(pr.total / MI).toFixed(1)} mi · ▲${Math.round(pr.climb * FT).toLocaleString()} ft`
     : `${fmtFt(pr.e[at])} <span class="el-g" style="--c:${GRADES.find(g => Math.abs(pr.g[at!]) < g.max)!.color}">${pr.g[at] > 0.5 ? '▲' : pr.g[at] < -0.5 ? '▼' : ''}${Math.abs(Math.round(pr.g[at]))}%</span> · ${(pr.d[at] / MI).toFixed(2)} mi`;
-  elevEl.innerHTML = `${miniProfileSvg(pr, at)}<div class="el-text"><b data-elopen>${live ? '● Recording' : esc(t.name)}</b><span data-elopen>${info}</span>${live ? '' : `<button class="el-x" data-elclose aria-label="Hide this ride's elevation">${ICONS.x}</button>`}</div>`;
+  elevEl.innerHTML = `${miniProfileSvg(pr, at)}<div class="el-text"><b data-elopen title="${esc(t.name)}">${live ? '● Rec' : new Date(t.startedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</b><span data-elopen>${info}</span>${live ? '' : `<button class="el-x" data-elclose aria-label="Hide this ride's elevation">${ICONS.x}</button>`}</div>`;
   elevEl.hidden = false;
 }
 function elevFrom(e: PointerEvent) {

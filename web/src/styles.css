@@ -420,3 +420,18 @@ label.tg.small { min-height: 38px; font-size: 13px; color: var(--quiet); border-
 .rbubble b { color: #1D4ED8; }
 .rbubble.out { opacity: 0; }
 @keyframes bubblein { from { transform: translateY(6px) scale(.9); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* "Need help" stands out in red; replies quote the message they answer */
+.msgtext.urgent, .msg.mine .msgtext.urgent { background: var(--sos); color: #fff; }
+button.qchip.urgent { background: var(--sos); border-color: var(--sos); color: #fff; }
+.msg { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.msg.replying .msgtext, .msg.replying .msgloc { box-shadow: 0 0 0 2px #0EA5E9; }
+.msg.flash .msgtext { animation: msgflash 1.2s; }
+@keyframes msgflash { 0%, 60% { box-shadow: 0 0 0 3px #F59E0B; } 100% { box-shadow: none; } }
+button.msgquote { display: flex; align-items: center; gap: 4px; max-width: 100%; min-height: 0; padding: 3px 8px; margin: 0 0 2px; border: 0; border-left: 3px solid #0EA5E9; border-radius: 6px;
+  background: rgba(14,165,233,.1); font-size: 12px; font-weight: 500; color: var(--quiet); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.msg.mine button.msgquote { margin-left: auto; }
+#cdreply { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 8px; margin-top: 4px; border-left: 3px solid #0EA5E9; background: rgba(14,165,233,.1); border-radius: 8px; font-size: 13px; }
+#cdreply[hidden] { display: none; }
+#cdreply span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#cdreply .ibtn { width: 30px; height: 30px; border: 0; background: none; }

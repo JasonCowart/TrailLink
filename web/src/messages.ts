@@ -9,6 +9,8 @@ export interface ChatMessage {
   id: string; groupId: string; riderId: string; by: string;
   kind: 'text' | 'quick' | 'location'; body: string; lat?: number; lon?: number;
   sentAt: string; createdAt?: string; pending?: boolean;
+  /** The message this one answers (tap a message to reply to it). */
+  replyTo?: string;
 }
 export interface LoggedGroup { id: string; name: string; joinedAt: string }
 
@@ -19,7 +21,7 @@ const write = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.st
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, c => (Number(c) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(c) / 4)))).toString(16)));
 const KEEP = 300; // messages kept on the phone per group
 
-type Row = { id: string; group_id: string; rider_id: string; kind: ChatMessage['kind']; body: string; lat: number | null; lon: number | null; sent_at: string; created_at: string; profiles?: { display_name: string } | null };
+type Row = { id: string; group_id: string; rider_id: string; kind: ChatMessage['kind']; body: string; lat: number | null; lon: number | null; sent_at: string; created_at: string; reply_to?: string | null; profiles?: { display_name: string } | null };
 
 export class GroupChat {
   private threads: Record<string, ChatMessage[]> = read('traillink.chat', {});
@@ -69,16 +71,16 @@ export class GroupChat {
   }
   private fromRow = (r: Row): ChatMessage => ({
     id: r.id, groupId: r.group_id, riderId: r.rider_id, by: r.profiles?.display_name ?? this.nameOf(r.rider_id), kind: r.kind, body: r.body,
-    lat: r.lat ?? undefined, lon: r.lon ?? undefined, sentAt: r.sent_at, createdAt: r.created_at,
+    lat: r.lat ?? undefined, lon: r.lon ?? undefined, sentAt: r.sent_at, createdAt: r.created_at, replyTo: r.reply_to ?? undefined,
   });
 
   /** Write a message: saved here at once, sent when there's signal. */
-  send(kind: ChatMessage['kind'], body: string, at?: { lat: number; lon: number }) {
+  send(kind: ChatMessage['kind'], body: string, at?: { lat: number; lon: number }, replyTo?: string) {
     const g = this.c.group, me = this.c.uid;
     if (!g || !me) throw new Error('Join a ride group first.');
     const text = body.trim().slice(0, 500);
     if (!text && kind !== 'location') return;
-    this.waiting.push({ id: uuid(), groupId: g.id, riderId: me, by: 'You', kind, body: text, lat: at?.lat, lon: at?.lon, sentAt: new Date().toISOString(), pending: true });
+    this.waiting.push({ id: uuid(), groupId: g.id, riderId: me, by: 'You', kind, body: text, lat: at?.lat, lon: at?.lon, sentAt: new Date().toISOString(), pending: true, replyTo });
     this.save(); this.onChange();
     void this.flush();
   }
@@ -89,8 +91,8 @@ export class GroupChat {
     try {
       for (const m of [...this.waiting]) {
         const { data, error } = await this.c.client.from('group_messages').insert({
-          id: m.id, group_id: m.groupId, kind: m.kind, body: m.body, lat: m.lat ?? null, lon: m.lon ?? null, sent_at: m.sentAt,
-        }).select('id,group_id,rider_id,kind,body,lat,lon,sent_at,created_at').maybeSingle();
+          id: m.id, group_id: m.groupId, kind: m.kind, body: m.body, lat: m.lat ?? null, lon: m.lon ?? null, sent_at: m.sentAt, ...(m.replyTo ? { reply_to: m.replyTo } : {}),
+        }).select('id,group_id,rider_id,kind,body,lat,lon,sent_at,created_at,reply_to').maybeSingle();
         if (!error && data) { this.merge(m.groupId, [{ ...this.fromRow(data as Row), by: 'You' }]); continue; }
         if (error?.code === '23505') { this.waiting = this.waiting.filter(w => w.id !== m.id); continue; } // already there
         if (error && (error.code === '42501' || /row-level security/i.test(error.message))) { // no longer in that group
@@ -106,7 +108,7 @@ export class GroupChat {
     if (!groupId || !navigator.onLine || !this.c.uid) return;
     const t = this.threads[groupId] ?? [];
     const since = t.length ? t[t.length - 1].createdAt : undefined;
-    let q = this.c.client.from('group_messages').select('id,group_id,rider_id,kind,body,lat,lon,sent_at,created_at,profiles(display_name)')
+    let q = this.c.client.from('group_messages').select('id,group_id,rider_id,kind,body,lat,lon,sent_at,created_at,reply_to,profiles(display_name)')
       .eq('group_id', groupId).order('created_at', { ascending: true }).limit(KEEP);
     if (since) q = q.gt('created_at', since);
     const { data, error } = await q;

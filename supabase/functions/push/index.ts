@@ -17,7 +17,7 @@ Deno.serve(async req => {
   if (!SECRET || req.headers.get('x-push-secret') !== SECRET) return new Response('forbidden', { status: 403 });
 
   const { message_id } = await req.json().catch(() => ({}));
-  const { data: m } = await db.from('group_messages').select('id,group_id,rider_id,kind,body').eq('id', message_id).maybeSingle();
+  const { data: m } = await db.from('group_messages').select('id,group_id,rider_id,kind,body,reply_to').eq('id', message_id).maybeSingle();
   if (!m) return Response.json({ sent: 0, why: 'no message' });
   const [{ data: who }, { data: group }, { data: members }] = await Promise.all([
     db.from('profiles').select('display_name').eq('id', m.rider_id).maybeSingle(),
@@ -26,17 +26,22 @@ Deno.serve(async req => {
   ]);
   const riders = (members ?? []).map(x => x.rider_id);
   if (!riders.length) return Response.json({ sent: 0 });
-  const { data: subs } = await db.from('push_subscriptions').select('endpoint,p256dh,auth').in('rider_id', riders);
-  const payload = JSON.stringify({
-    title: `${who?.display_name ?? 'A rider'} · ${group?.name ?? 'Ride group'}`,
-    body: m.kind === 'location' ? `Shared their location${m.body ? `: ${m.body}` : ''}` : m.body,
+  const { data: subs } = await db.from('push_subscriptions').select('rider_id,endpoint,p256dh,auth').in('rider_id', riders);
+  // A reply: its author's name, and for the rider being answered, "replied to you" with their message quoted.
+  const { data: orig } = m.reply_to ? await db.from('group_messages').select('rider_id,kind,body').eq('id', m.reply_to).maybeSingle() : { data: null };
+  const name = who?.display_name ?? 'A rider', gname = group?.name ?? 'Ride group';
+  const text = m.kind === 'location' ? `Shared their location${m.body ? `: ${m.body}` : ''}` : m.body;
+  const quote = orig ? (orig.kind === 'location' ? 'your location' : `"${String(orig.body).slice(0, 40)}"`) : '';
+  const payloadFor = (riderId: string) => JSON.stringify({
+    title: orig && orig.rider_id === riderId ? `${name} replied to you · ${gname}` : `${name} · ${gname}`,
+    body: orig && orig.rider_id === riderId ? `${text}  ↩ ${quote}` : text,
     tag: `group-${m.group_id}`,
     url: './#group',
   });
   let sent = 0;
   await Promise.all((subs ?? []).map(async s => {
     try {
-      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, { TTL: 3600, urgency: 'high' });
+      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payloadFor(s.rider_id), { TTL: 3600, urgency: 'high' });
       sent++;
     } catch (e) {
       const code = (e as { statusCode?: number }).statusCode;

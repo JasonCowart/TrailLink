@@ -7,6 +7,8 @@ select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c
 select join_group((select code from cr));
 insert into group_messages (id, group_id, kind, body) values ('10000000-0000-4000-8000-000000000001', (select id from cr), 'quick', 'Stopping');
 insert into group_messages (id, group_id, kind, body, lat, lon) values ('10000000-0000-4000-8000-000000000002', (select id from cr), 'location', 'Here', 38.5, -109.5);
+-- Kim replies to her own "Stopping" (the app sends reply_to).
+insert into group_messages (id, group_id, body, reply_to) values ('10000000-0000-4000-8000-000000000003', (select id from cr), 'Back in 5', '10000000-0000-4000-8000-000000000001');
 -- Sending the same message twice (offline retry) is refused, not duplicated.
 do $$ begin
   begin
@@ -30,14 +32,15 @@ end $$;
 -- Maria reads both. Then everyone leaves: the group is gone, but the ride log stays readable to its riders.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
 do $$ begin
-  if (select count(*) from group_messages where group_id = (select id from cr)) <> 2 then raise exception 'member cannot read messages'; end if;
+  if (select count(*) from group_messages where group_id = (select id from cr)) <> 3 then raise exception 'member cannot read messages'; end if;
+  if (select reply_to from group_messages where id = '10000000-0000-4000-8000-000000000003') <> '10000000-0000-4000-8000-000000000001' then raise exception 'reply link lost'; end if;
 end $$;
 select leave_group((select id from cr));
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
 select leave_group((select id from cr));
 do $$ begin
   if exists (select 1 from groups where id = (select id from cr)) then raise exception 'empty group not removed'; end if;
-  if (select count(*) from group_messages where group_id = (select id from cr)) <> 2 then raise exception 'ride log lost after the group ended'; end if;
+  if (select count(*) from group_messages where group_id = (select id from cr)) <> 3 then raise exception 'ride log lost after the group ended'; end if;
   if (select group_name from group_log_members where group_id = (select id from cr)) <> 'Canyon Run' then raise exception 'ride log lost the group name'; end if;
   begin
     insert into group_messages (id, group_id, body) values (gen_random_uuid(), (select id from cr), 'late');

@@ -22,6 +22,7 @@ const ICONS = {
   move: ico('<path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>'),
   camera: ico('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
   x: ico('<path d="M6 6l12 12M18 6 6 18"/>'),
+  reply: ico('<path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 6 6"/>'),
   chat: ico('<path d="M4 5h16v11H9l-5 4z"/>'),
   send: ico('<path d="M4 12l16-8-6 16-2.5-6.5z"/><path d="M11.5 13.5L20 4"/>'),
   bell: ico('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>'),
@@ -497,13 +498,17 @@ function groupHtml(compact: boolean): string {
 // ---------------------------------------------------------------- group messages (kept as a ride log)
 const chat = new GroupChat(community);
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const isUrgent = (m: ChatMessage) => m.kind === 'quick' && m.body === 'Need help';
+const snippet = (m: ChatMessage) => (m.kind === 'location' ? 'Location' : m.body.length > 50 ? `${m.body.slice(0, 47)}…` : m.body);
 function msgHtml(m: ChatMessage): string {
   const mine = m.riderId === community.uid;
+  const orig = m.replyTo ? chat.thread(m.groupId).find(x => x.id === m.replyTo) : undefined;
+  const quote = m.replyTo ? `<button class="msgquote" data-jump="${m.replyTo}">${inl(ICONS.reply, 13)} ${orig ? `${orig.riderId === community.uid ? 'You' : esc(orig.by)}: ${esc(snippet(orig))}` : 'an earlier message'}</button>` : '';
   const when = m.pending ? 'waiting for signal' : timeOf(m.createdAt ?? m.sentAt);
   const body = m.kind === 'location'
     ? `<button class="msgloc" data-chatgo="${m.id}">${inl(ICONS.pin, 16)} ${mine ? 'My location' : 'Location'}${m.body ? `: ${esc(m.body)}` : ''}${state.pos && m.lat != null ? ` · ${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))}` : ''}</button>`
-    : `<span class="msgtext${m.kind === 'quick' ? ' quick' : ''}">${esc(m.body)}</span>`;
-  return `<div class="msg${mine ? ' mine' : ''}${m.pending ? ' pending' : ''}"><div class="msgmeta">${mine ? 'You' : esc(m.by)} · ${when}</div>${body}</div>`;
+    : `<span class="msgtext${m.kind === 'quick' ? ' quick' : ''}${isUrgent(m) ? ' urgent' : ''}">${esc(m.body)}</span>`;
+  return `<div class="msg${mine ? ' mine' : ''}${m.pending ? ' pending' : ''}${replyTo === m.id ? ' replying' : ''}" data-msg="${m.id}"><div class="msgmeta">${mine ? 'You' : esc(m.by)} · ${when}</div>${quote}${body}</div>`;
 }
 function chatHtml(groupId: string, readonly: boolean): string {
   const msgs = chat.thread(groupId);
@@ -543,10 +548,36 @@ drawer.innerHTML = `<div class="cdhead"><b id="cdtitle"></b><span class="grow"><
     <button class="ibtn" id="cdclose" aria-label="Close chat">${ICONS.chevDown}</button></div>
   <div class="chat" id="cdlist"></div>
   <div class="quickrow">${QUICK.map(q => `<button class="qchip${q === 'Need help' ? ' urgent' : ''}" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+  <div id="cdreply" hidden></div>
   <form id="chatform" class="chatform"><input name="msg" maxlength="500" autocomplete="off" enterkeyhint="send" placeholder="Message the group">
     <button type="button" class="ibtn" data-chatloc aria-label="Send my location" title="Send my location">${ICONS.pin}</button>
     <button class="ibtn sendbtn" aria-label="Send">${ICONS.send}</button></form>`;
 $('#mapwrap').append(chatPill, drawer);
+/** The message being answered (tap a message in the chat to reply to it). */
+let replyTo: string | null = null;
+function setReply(id: string | null) {
+  const g = community.group, m = id && g ? chat.thread(g.id).find(x => x.id === id) : undefined;
+  replyTo = m ? m.id : null;
+  const bar = $('#cdreply'), input = drawer.querySelector<HTMLInputElement>('input[name=msg]')!;
+  bar.hidden = !m;
+  if (m) {
+    const who = m.riderId === community.uid ? 'yourself' : esc(m.by);
+    bar.innerHTML = `${inl(ICONS.reply, 16)}<span>Replying to <b>${who}</b>: ${esc(snippet(m))}</span><button class="ibtn" data-cancelreply aria-label="Cancel reply">${ICONS.x}</button>`;
+    input.placeholder = `Reply to ${m.riderId === community.uid ? 'your message' : m.by}`;
+    input.focus();
+  } else input.placeholder = 'Message the group';
+  for (const el of drawer.querySelectorAll('.msg.replying')) el.classList.remove('replying');
+  if (m) drawer.querySelector(`.msg[data-msg="${m.id}"]`)?.classList.add('replying');
+}
+drawer.addEventListener('click', e => {
+  const t = e.target as HTMLElement;
+  if (t.closest('[data-cancelreply]')) { setReply(null); return; }
+  const jump = t.closest<HTMLElement>('[data-jump]');
+  if (jump) { const el = drawer.querySelector<HTMLElement>(`.msg[data-msg="${jump.dataset.jump}"]`); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } return; }
+  if (t.closest('button, a, input')) return;
+  const msg = t.closest<HTMLElement>('.msg[data-msg]');
+  if (msg && !msg.classList.contains('pending')) setReply(replyTo === msg.dataset.msg ? null : msg.dataset.msg!);
+});
 let chatOpen = false;
 const chatViewOpen = () => chatOpen;
 function renderMapChat() {
@@ -562,8 +593,9 @@ function renderMapChat() {
   $('#cdtitle').textContent = g.name;
   $('#cdbell').classList.toggle('on', chat.pushOn); $('#cdbell').hidden = !chat.pushSupported;
   const list = $('#cdlist'), atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
-  list.innerHTML = msgs.length ? msgs.map(msgHtml).join('') : '<p class="quiet chatempty">No messages yet. Tap a quick message or type one.</p>';
+  list.innerHTML = msgs.length ? msgs.map(msgHtml).join('') : '<p class="quiet chatempty">No messages yet. Tap a quick message or type one. Tap any message to reply to it.</p>';
   if (atBottom || list.dataset.fresh !== '1') { list.scrollTop = list.scrollHeight; list.dataset.fresh = '1'; }
+  if (replyTo) list.querySelector(`.msg[data-msg="${replyTo}"]`)?.classList.add('replying');
   chat.markRead(g.id);
 }
 function setChatOpen(open: boolean) {
@@ -575,7 +607,7 @@ function setChatOpen(open: boolean) {
 }
 function freshPill() { chatPill.classList.remove('fresh'); void chatPill.offsetWidth; chatPill.classList.add('fresh'); }
 chatPill.addEventListener('click', () => setChatOpen(true));
-$('#cdclose').addEventListener('click', () => setChatOpen(false));
+$('#cdclose').addEventListener('click', () => { setReply(null); setChatOpen(false); });
 $('#cdbell').addEventListener('click', () => {
   (chat.pushOn ? chat.disablePush().then(() => toast('Notifications off.')) : chat.enablePush().then(() => toast('Notifications on for new group messages.')))
     .catch((err: Error) => toast(err.message)).finally(renderMapChat);
@@ -605,8 +637,8 @@ document.addEventListener('click', e => {
   const b = (e.target as HTMLElement).closest<HTMLElement>('[data-quick],[data-chatloc],[data-chatgo],[data-chatlog]');
   if (!b) return;
   try {
-    if (b.dataset.quick) chat.send('quick', b.dataset.quick);
-    if (b.hasAttribute('data-chatloc')) { if (!state.pos) { toast('Waiting for GPS.'); return; } chat.send('location', '', state.pos); }
+    if (b.dataset.quick) { chat.send('quick', b.dataset.quick, undefined, replyTo ?? undefined); setReply(null); }
+    if (b.hasAttribute('data-chatloc')) { if (!state.pos) { toast('Waiting for GPS.'); return; } chat.send('location', '', state.pos, replyTo ?? undefined); setReply(null); }
   } catch (err) { toast((err as Error).message); return; }
   if (b.dataset.chatgo) {
     const m = Object.values(community.group ? [chat.thread(community.group.id)] : []).flat().find(x => x.id === b.dataset.chatgo)
@@ -623,7 +655,7 @@ document.addEventListener('click', e => {
 function chatSubmit(form: HTMLFormElement): boolean {
   if (form.id !== 'chatform') return false;
   const input = form.querySelector<HTMLInputElement>('input[name=msg]')!;
-  try { chat.send('text', input.value); input.value = ''; input.focus(); } catch (err) { toast((err as Error).message); }
+  try { chat.send('text', input.value, undefined, replyTo ?? undefined); input.value = ''; setReply(null); input.focus(); } catch (err) { toast((err as Error).message); }
   return true;
 }
 document.addEventListener('change', e => {

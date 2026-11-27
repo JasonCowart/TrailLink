@@ -616,3 +616,14 @@ button.spotmark::after { content: ''; position: absolute; left: -4px; bottom: -4
 /* Compass spans the full width of the map; the map buttons start just below it (owner, 2026-11-27) */
 #compass { left: 8px; right: 8px; width: auto; transform: none; }
 .fabs { top: calc(var(--map-top) + 40px); }
+/* Compass: three rows so nothing overlaps: ticks, then letters/degrees, then riders and the heading readout */
+#compass { height: 50px; }
+#compass .cm { bottom: 2px; }
+#compass .cm.regroup, #compass .cm.dest { bottom: 6px; }
+#compass .creadout { bottom: 1px; z-index: 1; }
+.fabs { top: calc(var(--map-top) + 54px); }
+.chips { top: calc(var(--map-top) + 54px); }
+.maplibregl-ctrl-top-left { top: calc(var(--map-top) + 80px); }
+#toast, #guide, #headsup, #helpbanner { top: calc(var(--map-top) + 54px); }
+#mapwrap.helpon .chips, #mapwrap.helpon #toast, #mapwrap.helpon #guide { top: calc(var(--map-top) + 114px); }
+#mapwrap.helpon .maplibregl-ctrl-top-left { top: calc(var(--map-top) + 140px); }

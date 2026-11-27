@@ -12,7 +12,8 @@ import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from './photos.ts';
 import { Backup, type Change } from './backup.ts';
-import { REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
+import { PIN_ICONS, REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
+import { FT, GRADES, MI, buildProfile, distAtX, indexAt, profileSvg, scrubXY, W as PROFILE_W, type Profile, type ProfileMark } from './profile.ts';
 // Small line icons for compact buttons.
 const ico = (d: string) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const ICONS = {
@@ -60,6 +61,10 @@ const state = {
   online: navigator.onLine,
   wakeLock: null as WakeLockSentinel | null,
   keepAwake: store.get('keepAwake', true),
+  /** Ride shown in the elevation profile (null: the ride being recorded, else the latest ride). */
+  viewRide: null as string | null,
+  scrubI: null as number | null,
+  scrubbing: false,
 };
 // Resume a ride that was recording when the page closed.
 const unfinished = state.tracks.find(t => !t.endedAt);
@@ -107,6 +112,10 @@ function addOverlays() {
   applyRatingStates();
   if (!map.getSource('mvum')) map.addSource('mvum', { type: 'raster', tiles: [MVUM_TILES], tileSize: 256, minzoom: 7, maxzoom: 17, attribution: 'USDA Forest Service MVUM' });
   if (!map.getLayer('mvum')) map.addLayer({ id: 'mvum', type: 'raster', source: 'mvum', paint: { 'raster-opacity': 0.9 }, layout: { visibility: state.mvum ? 'visible' : 'none' } });
+  // A past ride picked in the Ride tab (shown while the Ride tab is open).
+  if (!map.getSource('viewride')) map.addSource('viewride', { type: 'geojson', data: viewRideGeo() });
+  if (!map.getLayer('viewride-casing')) map.addLayer({ id: 'viewride-casing', type: 'line', source: 'viewride', paint: { 'line-color': '#fff', 'line-width': 7, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  if (!map.getLayer('viewride-line')) map.addLayer({ id: 'viewride-line', type: 'line', source: 'viewride', paint: { 'line-color': '#E8501A', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
   if (!map.getSource('track')) map.addSource('track', { type: 'geojson', data: trackGeo() });
   if (!map.getLayer('track')) map.addLayer({ id: 'track', type: 'line', source: 'track', paint: { 'line-color': '#E8501A', 'line-width': 4, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
   // Group riders who are sharing their location.
@@ -771,7 +780,7 @@ function onPosition(p: GeolocationPosition) {
     if (c.accuracy <= 50 && shouldKeep(last, pt)) { state.recording.points.push(pt); persistTracks(); refreshTrack(); }
   }
   renderChips();
-  if (state.tab === 'ride') renderPane();
+  if (state.tab === 'ride' && !state.scrubbing) renderPane();
   maybeSharePosition();
 }
 
@@ -1077,10 +1086,109 @@ function pinSheet(pinId: string) {
   hydratePhotos($('#sheet-body'));
 }
 
+// ---------------------------------------------------------------- elevation profile (Ride tab)
+/** The ride in the chart: the one being recorded, else the one picked, else the latest. */
+function profileRide(): Track | null {
+  if (state.recording && !state.viewRide) return state.recording;
+  const past = state.tracks.filter(t => t.endedAt && t.points.length > 1);
+  return past.find(t => t.id === state.viewRide) ?? (state.recording ?? past[0] ?? null);
+}
+let shownProfile: { id: string; pr: Profile } | null = null;
+function viewRideGeo(): FeatureCollection {
+  const t = state.tab === 'ride' ? profileRide() : null;
+  return { type: 'FeatureCollection', features: t && t !== state.recording && t.points.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: t.points.map(p => [p.lon, p.lat]) } }] : [] };
+}
+/** Pins within 60 m of the ride, placed at their distance along it. */
+function profileMarks(pr: Profile): ProfileMark[] {
+  const out: ProfileMark[] = [];
+  for (const pin of state.pins) {
+    let best = -1, bd = 60;
+    for (let i = 0; i < pr.lat.length; i++) { const dd = distanceM(pin, { lat: pr.lat[i], lon: pr.lon[i] }); if (dd < bd) { bd = dd; best = i; } }
+    if (best < 0) continue;
+    const color = pin.kind === 'report' && pin.report ? REPORTS[pin.report as ReportType]?.color ?? '#DC2626' : pin.kind === 'hazard' ? '#DC2626' : PIN_ICONS[pin.kind as keyof typeof PIN_ICONS]?.color ?? '#1F4D3A';
+    out.push({ d: pr.d[best], color, label: pinTitle(pin) });
+  }
+  return out;
+}
+const fmtFt = (m: number) => `${Math.round(m * FT).toLocaleString()} ft`;
+function profileHtml(): string {
+  const t = profileRide();
+  if (!t) return '';
+  const live = t === state.recording;
+  const pr = buildProfile(t.points);
+  shownProfile = pr ? { id: t.id, pr } : null;
+  const head = `<h2 class="phead">Elevation <span class="quiet">${live ? 'this ride so far' : esc(t.name)}</span></h2>`;
+  if (!pr) return `${head}<p class="quiet">${live ? 'The elevation chart builds as you ride.' : "This ride has no elevation: the phone's GPS didn't report altitude."}</p>`;
+  return `${head}
+    <div class="profilebox">${profileSvg(pr, profileMarks(pr))}</div>
+    <div class="preadout" id="preadout"><span class="quiet">Drag along the chart to follow the ride on the map.</span></div>
+    <div class="pkey">${GRADES.map(g => `<span><i style="background:${g.color}"></i>${g.label}</span>`).join('')}${profileMarks(pr).length ? '<span><i class="dot"></i>Your pins</span>' : ''}</div>
+    <div class="stats pstats">
+      <div class="stat"><b>${Math.round(pr.climb * FT).toLocaleString()}</b><span>ft climbed</span></div>
+      <div class="stat"><b>${Math.round(pr.descent * FT).toLocaleString()}</b><span>ft descended</span></div>
+      <div class="stat"><b>${Math.round(pr.high * FT).toLocaleString()}</b><span>ft highest</span></div>
+      <div class="stat"><b>${Math.round(pr.low * FT).toLocaleString()}</b><span>ft lowest</span></div>
+      <div class="stat"><b>${Math.round(pr.steepUp)}%</b><span>steepest climb</span></div>
+      <div class="stat"><b>${Math.round(-pr.steepDown)}%</b><span>steepest descent</span></div>
+      <div class="stat"><b>${(pr.total / MI).toFixed(1)}</b><span>miles</span></div>
+      <div class="stat"><b>${fmtDur(pr.t[pr.t.length - 1] - pr.t[0])}</b><span>total time</span></div>
+    </div>
+    ${live ? '' : `<div class="btns"><button data-act="fitride">${inl(ICONS.target)} Show whole ride on map</button></div>`}`;
+}
+function fmtDur(ms: number) { const m = Math.round(ms / 60000); return m < 60 ? `${m} min` : `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`; }
+
+const scrubEl = document.createElement('div');
+scrubEl.className = 'scrubpin';
+const scrubMarker = new maplibregl.Marker({ element: scrubEl });
+function setScrub(i: number | null, pan = false) {
+  state.scrubI = i;
+  const pr = shownProfile?.pr, svg = document.querySelector<SVGSVGElement>('#pane svg.profile');
+  if (i == null || !pr || !svg || i >= pr.d.length) { scrubMarker.remove(); svg?.querySelector('.scrub')?.setAttribute('hidden', ''); return; }
+  const { x, y } = scrubXY(pr, i);
+  const g = svg.querySelector('.scrub')!; g.removeAttribute('hidden');
+  g.querySelector('.scrubline')!.setAttribute('x1', String(x)); g.querySelector('.scrubline')!.setAttribute('x2', String(x));
+  g.querySelector('.scrubdot')!.setAttribute('cx', String(x)); g.querySelector('.scrubdot')!.setAttribute('cy', String(y));
+  const a = Math.max(0, i - 2), b = Math.min(pr.d.length - 1, i + 2);
+  const mph = pr.t[b] > pr.t[a] ? ((pr.d[b] - pr.d[a]) / ((pr.t[b] - pr.t[a]) / 1000)) * 2.23694 : 0;
+  const grade = Math.round(pr.g[i]);
+  $('#preadout').innerHTML = `<b>${(pr.d[i] / MI).toFixed(2)} mi</b><b>${fmtFt(pr.e[i])}</b>
+    <span class="grade" style="--c:${GRADES.find(gr => Math.abs(pr.g[i]) < gr.max)!.color}">${grade > 0 ? '▲' : grade < 0 ? '▼' : ''} ${Math.abs(grade)}%</span>
+    <span class="quiet">${fmtDur(pr.t[i] - pr.t[0])} in${mph >= 1 ? ` · ${Math.round(mph)} mph` : ''}</span>`;
+  const ll: [number, number] = [pr.lon[i], pr.lat[i]];
+  scrubMarker.setLngLat(ll);
+  if (!scrubEl.isConnected) scrubMarker.addTo(map);
+  if (pan && !map.getBounds().contains(ll)) { state.follow = false; $('#btn-center').classList.remove('active'); map.easeTo({ center: ll, duration: 300 }); }
+}
+function afterRidePane() {
+  (map.getSource('viewride') as GeoJSONSource | undefined)?.setData(viewRideGeo());
+  if (state.tab !== 'ride' || !shownProfile) { scrubMarker.remove(); return; }
+  if (state.scrubI != null) setScrub(state.scrubI);
+}
+function fitRide() {
+  const t = profileRide(); if (!t || t.points.length < 2) return;
+  const b = new maplibregl.LngLatBounds();
+  for (const p of t.points) b.extend([p.lon, p.lat]);
+  state.follow = false; $('#btn-center').classList.remove('active');
+  map.fitBounds(b, { padding: 50, duration: 600 });
+}
+// Drag on the chart: the dot moves along the ride on the map. Vertical swipes still scroll the panel.
+function scrubFrom(e: PointerEvent) {
+  const svg = (e.target as Element).closest('svg.profile'); if (!svg || !shownProfile) return;
+  const r = svg.getBoundingClientRect();
+  setScrub(indexAt(shownProfile.pr, distAtX(shownProfile.pr, ((e.clientX - r.left) / r.width) * PROFILE_W)), true);
+}
+$('#pane').addEventListener('pointerdown', e => {
+  if (!(e.target as Element).closest('svg.profile')) return;
+  state.scrubbing = true; (e.target as Element).setPointerCapture?.(e.pointerId); scrubFrom(e);
+});
+$('#pane').addEventListener('pointermove', e => { if (state.scrubbing) scrubFrom(e); });
+for (const ev of ['pointerup', 'pointercancel'] as const) $('#pane').addEventListener(ev, () => { state.scrubbing = false; });
+
 // ---------------------------------------------------------------- recording
 function persistTracks() { store.saveTracks(state.tracks); }
 function startRecording() {
   const t: Track = { id: String(Date.now()), name: `Ride ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`, points: [], startedAt: Date.now() };
+  state.viewRide = null; state.scrubI = null;
   state.tracks.unshift(t); state.recording = t; persistTracks(); refreshTrack(); render();
   if (!state.keepAwake) toast('Tip: turn on "Keep screen on" so recording does not pause.');
 }
@@ -1167,8 +1275,9 @@ const views: Record<Tab, () => string> = {
       </div>
       <label class="tg">Keep screen on during the ride <input type="checkbox" data-set="keepAwake" ${state.keepAwake ? 'checked' : ''}></label>
       ${p ? `<p class="quiet">You: ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)} · ±${p.acc} m</p>` : '<p class="quiet">Waiting for GPS. Step into open sky.</p>'}
-      ${pastRides.length ? `<h2>Past rides</h2>${pastRides.slice(0, 20).map(t => { const st = stats(t.points); return `
-        <div class="row"><div class="grow"><b>${esc(t.name)}</b><div class="quiet">${st.miles.toFixed(1)} mi · ${st.movingMin} min moving · ${st.gainFt.toLocaleString()} ft climbed</div></div>
+      ${profileHtml()}
+      ${pastRides.length ? `<h2>Past rides</h2>${pastRides.slice(0, 20).map(t => { const st = stats(t.points); const on = profileRide()?.id === t.id; return `
+        <div class="row ride${on ? ' on' : ''}"><button class="pinmain grow" data-viewride="${t.id}" aria-pressed="${on}"><b>${esc(t.name)}</b><span class="quiet">${st.miles.toFixed(1)} mi · ${st.movingMin} min moving · ${st.gainFt.toLocaleString()} ft climbed${on ? ' · in the chart' : ''}</span></button>
         <button data-gpx="${t.id}" aria-label="Export ${esc(t.name)} as GPX">GPX</button></div>`; }).join('')}` : ''}`;
   },
   trails() {
@@ -1314,6 +1423,7 @@ function renderPane() {
   pane.scrollTop = scroll;
   hydratePhotos(pane);
   refreshPanel();
+  afterRidePane();
 }
 function render() {
   document.querySelectorAll<HTMLButtonElement>('#tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === state.tab)));
@@ -1365,6 +1475,7 @@ function paneClick(e: Event) {
     if (r) sheet(`<h3>Remove ${esc(r.display_name ?? r.email)}?</h3><p>${r.joined_at ? `They'll be signed out within the hour and can't sign in again. Their ${r.ratings} rating${r.ratings === 1 ? '' : 's'} and ${r.trails} trail${r.trails === 1 ? '' : 's'} are deleted too.` : 'Their approval is cancelled, so they can\'t sign in.'}</p>
       <div class="btns"><button data-close>Keep</button><button class="danger" data-act2="removerider" data-id="${esc(r.email)}">Remove</button></div>`);
   }
+  if (act === 'fitride') { fitRide(); return; }
   if (act === 'sync') { void community.sync(); void backup.run(); }
   if (act === 'signout') void community.signOut().then(() => { state.signin = null; renderPane(); });
   if (act === 'signin-back') { state.signin = state.signin ? { ...state.signin, sent: false, error: undefined } : null; renderPane(); }
@@ -1372,6 +1483,7 @@ function paneClick(e: Event) {
   if (b.dataset.showtrail) { const t = community.trails().find(x => x.id === b.dataset.showtrail); if (t) { state.follow = false; const xs = t.coords.map(c => c[0]), ys = t.coords.map(c => c[1]); map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: 60, maxZoom: 15 }); } }
   if (b.dataset.deltrail) { const t = community.trails().find(x => x.id === b.dataset.deltrail); if (t) sheet(`<h3>Delete ${esc(t.name)}?</h3><p>This removes the trail from this phone.</p><div class="btns"><button data-close>Keep it</button><button class="danger" data-act2="deltrail" data-id="${t.id}">Delete</button></div>`); }
   if (b.dataset.gpx) downloadGpx(b.dataset.gpx);
+  if (b.dataset.viewride) { state.viewRide = b.dataset.viewride; state.scrubI = null; scrubMarker.remove(); renderPane(); fitRide(); return; }
   if (b.dataset.delpin) { const pin = state.pins.find(p => p.id === b.dataset.delpin); if (pin) { removePin(pin.id); if (pin.photos?.length) toast(`Pin deleted. Its photo${pin.photos.length === 1 ? ' is' : 's are'} kept under "Photos from deleted pins".`); } }
   if (b.dataset.openpin) pinSheet(b.dataset.openpin);
   if (b.dataset.movepin) { const pin = state.pins.find(p => p.id === b.dataset.movepin); if (pin) startPlacing({ mode: 'move', pinId: pin.id }, [pin.lon, pin.lat]); }

@@ -286,3 +286,26 @@ svg.inl { vertical-align: -3px; margin-right: 2px; flex: none; }
 .legend .lgpin .ricon svg { width: 62%; height: 62%; }
 .legend .lgpin .hasphoto { position: absolute; right: -4px; top: -4px; width: 18px; height: 18px; border-radius: 50%; background: #fff; color: #1D4ED8; display: grid; place-items: center; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
 .legend .lgpin .hasphoto svg { width: 12px; height: 12px; }
+
+/* Elevation profile (Ride tab) */
+.phead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.phead .quiet { font: 500 14px/1.2 inherit; font-family: inherit; }
+.profilebox { background: var(--sand); border-radius: 14px; padding: 6px 4px 2px; }
+svg.profile { display: block; width: 100%; height: auto; touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: crosshair; }
+svg.profile .pgrid { stroke: rgba(0,0,0,.08); stroke-width: 1; }
+svg.profile .paxis { stroke: rgba(0,0,0,.35); stroke-width: 1; }
+svg.profile .plabel { font: 600 9.5px/1 system-ui, sans-serif; fill: var(--quiet); }
+svg.profile .scrubline { stroke: var(--ink); stroke-width: 1.5; }
+svg.profile .scrubdot { fill: #E8501A; stroke: #fff; stroke-width: 2.5; }
+svg.profile .scrub[hidden] { display: none; }
+.preadout { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 30px; margin: 6px 2px; font-size: 15px; }
+.preadout .grade { font-weight: 700; padding: 1px 8px; border-radius: 8px; background: color-mix(in srgb, var(--c) 35%, transparent); }
+.pkey { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--quiet); margin: 0 2px 8px; }
+.pkey i { display: inline-block; width: 12px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+.pkey i.dot { width: 10px; height: 10px; border-radius: 50%; background: #1F4D3A; }
+.pstats { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 8px; }
+.pstats .stat b { font-size: 20px; }
+.pstats .stat span { font-size: 12px; }
+.row.ride.on { background: color-mix(in srgb, var(--orange) 10%, transparent); border-radius: 12px; }
+.row.ride .pinmain { text-align: left; }
+.scrubpin { width: 22px; height: 22px; border-radius: 50%; background: #E8501A; border: 4px solid #fff; box-shadow: 0 0 0 2px #1F2A24, 0 2px 6px rgba(0,0,0,.4); pointer-events: none; }

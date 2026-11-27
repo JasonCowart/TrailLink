@@ -104,6 +104,27 @@ try {
   check(gone, 'group ends when the last rider leaves');
   const log = phone('maria2', maria, { group: g, log: true });
   check(log.log.includes('Test Canyon Run') && log.thread.length === 3, `ride log keeps the group and its 3 messages (${log.log.length} groups, ${log.thread.length} messages)`);
+  // Test riders (admin only): a throwaway admin starts them in a new group.
+  const fn = (u, body) => fetch(`${URL}/functions/v1/demo`, { method: 'POST', headers: { apikey: KEY, Authorization: `Bearer ${u.token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const notAdmin = await fn(kim, { action: 'start', lat: 38.57, lon: -109.55 });
+  check(notAdmin.status === 403, `test riders refused for a non-admin (HTTP ${notAdmin.status})`);
+  await sql(`update public.profiles set is_admin = true where id = '${maria.uid}'`);
+  const tg = await rest(maria, 'rpc/create_group', { p_name: 'Test riders check' });
+  const st = await fn(maria, { action: 'start', lat: 38.57, lon: -109.55 });
+  check(st.ok, `admin starts test riders (HTTP ${st.status})`);
+  const pos = await rest(maria, `group_positions?select=rider_id,lat,lon&group_id=eq.${tg.id}`);
+  check(Array.isArray(pos) && pos.length === 3, `three test riders appear on the map (${Array.isArray(pos) ? pos.length : 'error'})`);
+  await rest(maria, 'group_messages', { id: randomUUID(), group_id: tg.id, body: 'Where is everyone?' });
+  await fn(maria, { action: 'tick', lat: 38.57, lon: -109.55 });
+  const msgs = await rest(maria, `group_messages?select=rider_id,body,reply_to&group_id=eq.${tg.id}&order=created_at`);
+  check(msgs.length >= 3 && msgs[msgs.length - 1].rider_id !== maria.uid, `a test rider answers the admin (${msgs.length} messages)`);
+  const pos2 = await rest(maria, `group_positions?select=rider_id,lat&group_id=eq.${tg.id}`);
+  check(pos2.length === 3, 'test riders keep moving on each tick');
+  await fn(maria, { action: 'stop' });
+  const left = await rest(maria, `group_members?select=rider_id&group_id=eq.${tg.id}`);
+  check(left.length === 1, `test riders leave when stopped (${left.length} left)`);
+  await rest(maria, 'rpc/leave_group', { p_group: tg.id });
+  await sql(`delete from public.group_messages where group_id = '${tg.id}'; delete from public.group_log_members where group_id = '${tg.id}'`);
 } catch (e) {
   console.log(`FAIL ${e.message}`); failures++;
 } finally {

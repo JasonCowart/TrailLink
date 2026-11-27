@@ -1445,7 +1445,7 @@ function riderArrowImage(): ImageData {
   return g.getImageData(0, 0, S, S);
 }
 const phoneCompass = new PhoneCompass();
-let headingUp = false;
+let headingUp = store.get('headingUp', false); // remembered between launches
 /** Which way I'm heading: GPS course when moving (best on a moving vehicle), else the phone's compass, else the map. */
 function myHeading(): { deg: number; source: HeadingSource } {
   const p = state.pos;
@@ -1488,14 +1488,20 @@ function drawHeading() {
 }
 phoneCompass.onChange = drawHeading;
 map.on('rotate', drawHeading);
-map.on('rotatestart', e => { if ((e as { originalEvent?: Event }).originalEvent && headingUp) { headingUp = false; drawHeading(); } });
+map.on('rotatestart', e => { if ((e as { originalEvent?: Event }).originalEvent && headingUp) { headingUp = false; store.set('headingUp', false); drawHeading(); } });
+// iPhone only lets a web app read the compass after a tap, every time it opens. If you allowed it before, the first tap
+// anywhere in the app turns it back on (no need to find the compass bar).
+document.addEventListener('pointerdown', () => {
+  if (store.get('compassAllowed', false) && !phoneCompass.started) void phoneCompass.start().then(ok => { if (ok) drawHeading(); });
+}, { capture: true });
 compassEl.addEventListener('click', async () => {
   if (phoneCompass.needsPermission || !phoneCompass.started) {
     const ok = await phoneCompass.start();
+    if (ok) store.set('compassAllowed', true);
     if (!ok) toast('Compass not allowed. The bar follows your GPS direction while you move.');
     else if (!headingUp) { toast('Compass on. Tap the bar again to turn the map with your heading.'); drawHeading(); return; }
   }
-  headingUp = !headingUp;
+  headingUp = !headingUp; store.set('headingUp', headingUp);
   if (!headingUp) map.rotateTo(0, { duration: 400 });
   toast(headingUp ? 'Map turns with your heading. Tap the bar again for north up.' : 'North up.');
   drawHeading();
@@ -2445,7 +2451,7 @@ $('#btn-center').classList.add('active');
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state, chat, riderBubble, setChatOpen, drawHeading, drawRiders, updateRideMode, headsUp, drawSpots, renderMapChat, startGetOut, updateGuide, getGo: () => goRoute, trailLines, go: { loadTrailLines, buildGraph, trailRoute } } });
 // ---------------------------------------------------------------- account backup (pins, rides, settings, photos)
 // Settings that follow the rider between phones (map position, panel and install prompts stay per phone).
-const SYNCED_SETTINGS = ['theme', 'compass', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
+const SYNCED_SETTINGS = ['theme', 'compass', 'headingUp', 'readAloud', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
 function applySettings(keys: string[]) {
   for (const k of keys) {
     if (k === 'base') { const b = store.get<BaseMapId>('base', 'topo'); if (b !== state.base && b in BASE_MAPS) setBase(b); }

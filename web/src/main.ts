@@ -1903,7 +1903,7 @@ function finishedRides() { return state.tracks.filter(t => t.endedAt && t.points
 function myRidesGeo(): FeatureCollection {
   return { type: 'FeatureCollection', features: finishedRides().map(t => ({ type: 'Feature', properties: { id: t.id }, geometry: { type: 'LineString', coordinates: t.points.map(p => [p.lon, p.lat]) } })) };
 }
-function applyMyRides() { for (const id of ['myrides-casing', 'myrides-line']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', state.myRides ? 'visible' : 'none'); }
+function applyMyRides() { if (!state.myRides) { state.viewRide = null; state.scrubI = null; scrubMarker.remove(); } afterRidePane(); for (const id of ['myrides-casing', 'myrides-line']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', state.myRides ? 'visible' : 'none'); }
 function refreshMyRides() { (map.getSource('myrides') as GeoJSONSource | undefined)?.setData(myRidesGeo()); afterRidePane(); }
 function openRide(id: string) {
   state.viewRide = id; state.scrubI = null; scrubMarker.remove();
@@ -1914,7 +1914,8 @@ function openRide(id: string) {
 }
 function viewRideGeo(): FeatureCollection {
   // In the Ride tab: the ride in the chart. Elsewhere: the ride you picked, until you tap the map away from it.
-  const t = state.tab === 'ride' ? profileRide() : state.viewRide ? state.tracks.find(x => x.id === state.viewRide) ?? null : null;
+  // With "My recorded rides" off, only a ride you pick from the Past rides list is drawn.
+  const t = state.tab === 'ride' && state.myRides ? profileRide() : state.viewRide ? state.tracks.find(x => x.id === state.viewRide) ?? null : null;
   return { type: 'FeatureCollection', features: t && t !== state.recording && t.points.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: t.points.map(p => [p.lon, p.lat]) } }] : [] };
 }
 /** Pins within 60 m of the ride, placed at their distance along it. */

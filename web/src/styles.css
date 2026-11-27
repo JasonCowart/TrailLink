@@ -2,7 +2,9 @@
 :root {
   --sand: #F2EEE4; --land: #ECE6D6; --paper: #FFFDF8; --ink: #1D221D; --quiet: #4F564C; --line: #E2DBCB;
   --pine: #1F4D3A; --orange: #E8501A; --action: #B4400F; --sos: #C81E1E; --red: #B91C1C; --warn: #FFF7E8;
-  --safe-top: env(safe-area-inset-top, 0px); --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+  /* iPhone Home Screen app: iOS fades the top of the screen well below the status bar, so map controls start under the fade. */
+  --map-top: calc(var(--safe-top) * 1.75 + 10px); --safe-bottom: env(safe-area-inset-bottom, 0px);
   font-family: 'Barlow', system-ui, -apple-system, 'Segoe UI', sans-serif;
   color-scheme: light;
 }
@@ -22,7 +24,7 @@ a.btnlink.danger { background: var(--sos); color: #fff; border: 2px solid #fff; 
 .brand { flex: 1; display: flex; flex-direction: column; line-height: 1.1; }
 .brand b { font: 700 23px/1 'Barlow Condensed', 'Arial Narrow', sans-serif; letter-spacing: .01em; }
 .brand span { font-size: 13px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chips { position: absolute; left: 10px; top: calc(10px + var(--safe-top)); z-index: 2; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 90px); pointer-events: none; }
+.chips { position: absolute; left: 10px; top: var(--map-top); z-index: 2; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 90px); pointer-events: none; }
 .chip { font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 99px; background: rgba(31,77,58,.88); color: #fff; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
 .chip.on { background: rgba(255,253,248,.92); color: var(--pine); }
 .chip.off { background: #B45309; color: #fff; }
@@ -30,7 +32,7 @@ a.btnlink.danger { background: var(--sos); color: #fff; border: 2px solid #fff; 
 
 #mapwrap { position: relative; background: var(--land); }
 #map { position: absolute; inset: 0; }
-.fabs { position: absolute; right: 12px; top: calc(12px + var(--safe-top)); display: flex; flex-direction: column; gap: 8px; z-index: 2; }
+.fabs { position: absolute; right: 12px; top: var(--map-top); display: flex; flex-direction: column; gap: 8px; z-index: 2; }
 .fab { width: 52px; height: 52px; padding: 0; display: grid; place-items: center; border: 0; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
 .fab svg { width: 24px; height: 24px; fill: none; stroke: var(--ink); stroke-width: 2; }
 .fab.active { background: var(--pine); } .fab.active svg { stroke: #fff; }
@@ -38,7 +40,7 @@ a.btnlink.danger { background: var(--sos); color: #fff; border: 2px solid #fff; 
   color: #fff; background: conic-gradient(rgba(255,255,255,.55) var(--p, 0%), var(--sos) 0); box-shadow: 0 3px 10px rgba(0,0,0,.3); }
 #btn-sos span { display: grid; place-items: center; font: 700 24px/1 'Barlow Condensed', sans-serif; }
 #btn-sos small { font: 700 11px Barlow, sans-serif; }
-#toast { position: absolute; left: 50%; top: calc(12px + var(--safe-top)); transform: translateX(-50%); z-index: 3; background: var(--ink); color: #fff; padding: 10px 14px; border-radius: 12px; max-width: min(92%, 440px); font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,.3); }
+#toast { position: absolute; left: 50%; top: var(--map-top); transform: translateX(-50%); z-index: 3; background: var(--ink); color: #fff; padding: 10px 14px; border-radius: 12px; max-width: min(92%, 440px); font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,.3); }
 
 .me { width: 22px; height: 22px; border-radius: 50%; background: var(--orange); border: 3px solid #fff; box-shadow: 0 0 0 8px rgba(232,80,26,.2); position: relative; }
 .me .cone { position: absolute; left: 50%; top: -14px; width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 12px solid var(--orange); transform-origin: 50% 25px; translate: -50% 0; }
@@ -73,7 +75,7 @@ label.tg input { width: 24px; height: 24px; accent-color: var(--action); flex: n
 .card { background: var(--sand); border-radius: 14px; padding: 12px 14px; margin: 8px 0; }
 .coords { font: 700 22px/1.2 'Barlow Condensed', sans-serif; user-select: all; }
 
-.overlay { position: fixed; inset: 0; z-index: 10; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: calc(12px + var(--safe-top)) 16px calc(12px + var(--safe-bottom)); }
+.overlay { position: fixed; inset: 0; z-index: 10; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: var(--map-top) 16px calc(12px + var(--safe-bottom)); }
 .overlay[hidden] { display: none; }
 .dialog { background: var(--paper); border-radius: 18px; padding: 20px; width: 100%; max-width: 440px; max-height: 100%; overflow: auto; overscroll-behavior: contain; }
 .dialog.sos { background: #A51818; color: #fff; }
@@ -122,7 +124,7 @@ label.tg input { width: 24px; height: 24px; accent-color: var(--action); flex: n
 .seg3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } .seg3 button { font-size: 14px; line-height: 1.15; padding: 4px; }
 
 /* Drawing a new trail */
-#drawbar { position: absolute; left: 12px; right: 76px; top: calc(12px + var(--safe-top)); z-index: 3; background: var(--paper); border-radius: 14px; padding: 10px 12px; box-shadow: 0 3px 12px rgba(0,0,0,.25); }
+#drawbar { position: absolute; left: 12px; right: 76px; top: var(--map-top); z-index: 3; background: var(--paper); border-radius: 14px; padding: 10px 12px; box-shadow: 0 3px 12px rgba(0,0,0,.25); }
 #drawbar b { display: block; } #drawbar span { font-size: 14px; color: var(--quiet); }
 #drawbar .btns { margin: 8px 0 0; } #drawbar .btns > button { flex: 1 1 70px; }
 .form { display: grid; gap: 10px; }
@@ -185,7 +187,7 @@ img.missing { display: none; }
 .reportgrid button span { font-size: 32px; line-height: 1; }
 #crosshair { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; z-index: 3; pointer-events: none;
   background: radial-gradient(circle, #E8501A 0 4px, transparent 5px), linear-gradient(#1D221D, #1D221D) center / 2px 100% no-repeat, linear-gradient(#1D221D, #1D221D) center / 100% 2px no-repeat; filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff); }
-#placebar { position: absolute; left: 12px; right: 76px; top: calc(12px + var(--safe-top)); z-index: 3; background: var(--paper); border-radius: 14px; padding: 10px 12px; box-shadow: 0 3px 12px rgba(0,0,0,.25); }
+#placebar { position: absolute; left: 12px; right: 76px; top: var(--map-top); z-index: 3; background: var(--paper); border-radius: 14px; padding: 10px 12px; box-shadow: 0 3px 12px rgba(0,0,0,.25); }
 #placebar b { display: block; } #placebar span { font-size: 14px; color: var(--quiet); }
 #placebar .btns { margin: 8px 0 0; } #placebar .btns > button { flex: 1 1 70px; }
 .pin.report { background: #F59E0B; color: #1D221D; }
@@ -195,7 +197,7 @@ details.cleared { margin: 8px 0; } details.cleared summary { font-weight: 700; c
 details.cleared .row { opacity: .7; }
 
 /* The map's own top-left controls (distance scale) sit under the status labels. */
-.maplibregl-ctrl-top-left { top: calc(36px + var(--safe-top)); }
+.maplibregl-ctrl-top-left { top: calc(var(--map-top) + 26px); }
 .install { position: relative; }
 .install .x { position: absolute; right: 6px; top: 6px; min-height: 36px; width: 36px; padding: 0; border: 0; background: none; font-size: 18px; }
 #installbar { position: absolute; left: 100px; right: 96px; bottom: calc(30px + var(--safe-bottom)); z-index: 3; display: flex; align-items: center; gap: 6px; background: var(--paper); border-radius: 14px; padding: 6px 6px 6px 12px; box-shadow: 0 3px 12px rgba(0,0,0,.3); font-size: 13px; line-height: 1.2; }

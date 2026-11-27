@@ -16,6 +16,7 @@ import { GroupChat, QUICK, type ChatMessage } from './messages.ts';
 import { PhoneCompass, compassHtml, type CompassMark, type HeadingSource } from './compass.ts';
 import { buildGraph, loadTrailLines, progress, trackRoute, trailRoute, type LL, type Route } from './getout.ts';
 import qrcode from 'qrcode-generator';
+import { Breadcrumbs } from './groupline.ts';
 import jsQR from 'jsqr';
 import { PIN_ICONS, REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
 import { FT, GRADES, MI, buildProfile, distAtX, indexAt, profileSvg, scrubXY, W as PROFILE_W, type Profile, type ProfileMark } from './profile.ts';
@@ -79,6 +80,7 @@ const state = {
   keepAwake: store.get('keepAwake', true),
   /** Ride shown in the elevation profile (null: the ride being recorded, else the latest ride). */
   compass: store.get('compass', true),
+  groupLine: store.get('groupLine', true),
   theme: store.get<'auto' | 'light' | 'dark'>('theme', 'auto'),
   viewRide: null as string | null,
   scrubI: null as number | null,
@@ -362,6 +364,7 @@ function layersPanelHtml(): string {
   return `<h3>Trails</h3>
       <label class="tg">OHV trails and roads <input type="checkbox" data-set="trails" ${state.trails ? 'checked' : ''}></label>
       <label class="tg">Compass bar <input type="checkbox" data-set="compass" ${state.compass ? 'checked' : ''}></label>
+      <label class="tg">Group line (who's falling behind) <input type="checkbox" data-set="groupLine" ${state.groupLine ? 'checked' : ''}></label>
       <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
       <p class="quiet" style="margin:12px 0 4px"><b>Color trails by</b></p>
       <div class="seg seg4" role="group" aria-label="Color trails by">
@@ -508,7 +511,49 @@ function ridersGeo(): FeatureCollection {
       geometry: { type: 'Point', coordinates: [m.pos!.lon, m.pos!.lat] } };
   }) };
 }
-function drawRiders() { (map.getSource('riders') as GeoJSONSource | undefined)?.setData(ridersGeo()); refreshPanel(); drawHeading(); }
+function drawRiders() { (map.getSource('riders') as GeoJSONSource | undefined)?.setData(ridersGeo()); refreshPanel(); drawHeading(); drawGroupLine(); }
+
+// ---------------------------------------------------------------- group line: who's ahead, who's falling behind
+// A slim line above the chat bar: the leader on the right, everyone placed by how far along the trail they are.
+let crumbs: Breadcrumbs | null = null, crumbsGroup = '';
+const lineEl = Object.assign(document.createElement('div'), { id: 'groupline', hidden: true });
+$('#mapwrap').append(lineEl);
+let behindSpokenAt = 0;
+function drawGroupLine() {
+  const g = community.signedIn ? community.group : null;
+  if (!g || !state.groupLine) { lineEl.hidden = true; return; }
+  if (crumbsGroup !== g.id) { crumbs = new Breadcrumbs(`traillink.crumbs.${g.id}`); crumbsGroup = g.id; }
+  const now: Record<string, LL> = {};
+  for (const m of community.members) {
+    if (m.riderId === community.uid || !m.pos || !m.sharing || Date.now() - Date.parse(m.pos.at) > 10 * 60e3) continue;
+    crumbs!.add(m.riderId, m.pos); now[m.riderId] = m.pos;
+  }
+  if (state.pos && community.uid) { crumbs!.add(community.uid, state.pos); now[community.uid] = state.pos; }
+  crumbs!.save();
+  const r = crumbs!.places(now);
+  if (!r) { lineEl.hidden = true; return; }
+  const sorted = [...r.places].sort((a, b) => a.along - b.along);
+  const lo = sorted[0].along, hi = sorted[sorted.length - 1].along, span = Math.max(hi - lo, 50);
+  const name = (id: string) => id === community.uid ? 'You' : (community.members.find(m => m.riderId === id)?.name ?? 'Rider').replace(/\s*\(test\)/, '');
+  // The biggest gap between neighbours: if over half a mile, that rider (and everyone behind) is "falling behind".
+  let gapAt = -1, gap = 0;
+  for (let i = 1; i < sorted.length; i++) { const d = sorted[i].along - sorted[i - 1].along; if (d > gap) { gap = d; gapAt = i; } }
+  const behind = gap > 805 ? sorted.slice(0, gapAt) : [];
+  const last = sorted[0];
+  const dots = sorted.map(p => {
+    const x = ((p.along - lo) / span) * 100, me = p.riderId === community.uid, late = behind.includes(p);
+    return `<span class="gl-dot${me ? ' me' : ''}${late ? ' late' : ''}" style="left:${x.toFixed(1)}%" title="${esc(name(p.riderId))}">${me ? '' : esc(initials(name(p.riderId)))}</span>`;
+  }).join('');
+  const tail = hi - last.along;
+  lineEl.innerHTML = `<div class="gl-track">${dots}</div><div class="gl-text">${behind.length ? `<b class="late">${esc(behind.map(p => name(p.riderId)).join(', '))} ${(gap / 1609.344).toFixed(1)} mi behind</b>` : `Group spread ${fmtDistShort(tail)}`}<span>Leader: ${esc(name(sorted[sorted.length - 1].riderId))}</span></div>`;
+  lineEl.hidden = false;
+  if (behind.length && Date.now() - behindSpokenAt > 10 * 60e3) {
+    behindSpokenAt = Date.now();
+    speak(`${behind.map(p => name(p.riderId)).join(' and ')} ${behind.length > 1 ? 'are' : 'is'} ${(gap / 1609.344).toFixed(1)} miles behind the group.`);
+  }
+}
+function fmtDistShort(m: number) { const mi = m / 1609.344; return mi < 0.1 ? `${Math.round(m * 3.28084 / 10) * 10} ft` : `${mi.toFixed(1)} mi`; }
+lineEl.addEventListener('click', () => { openPanel('riders'); });
 
 let lastShare = 0, lastSharedAt: { lat: number; lon: number } | null = null;
 /** While sharing: send my position every 15 s when moving, at least once a minute when parked. */
@@ -1522,7 +1567,7 @@ function onPosition(p: GeolocationPosition) {
   state.pos = { lat: c.latitude, lon: c.longitude, acc: Math.round(c.accuracy), alt: c.altitude ?? undefined, speed: c.speed ?? undefined, heading: c.heading ?? undefined, t: p.timestamp };
   meMarker.setLngLat([c.longitude, c.latitude]);
   if (!meMarker.getElement().isConnected) meMarker.addTo(map);
-  drawHeading(); updateRideMode(); updateGuide();
+  drawHeading(); updateRideMode(); updateGuide(); drawGroupLine();
   if (state.follow) map.easeTo({ center: [c.longitude, c.latitude], zoom: Math.max(map.getZoom(), 13), duration: 600 });
   if (state.recording) {
     const pt: Pt = { lat: c.latitude, lon: c.longitude, t: p.timestamp, alt: c.altitude ?? undefined };
@@ -2285,6 +2330,7 @@ function paneChange(e: Event) {
   if (t.dataset.set === 'trails') { state.trails = t.checked; store.set('trails', t.checked); for (const l of [...TRAIL_LAYERS, ...OVERVIEW_LAYERS]) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', t.checked ? 'visible' : 'none'); if (!t.checked) popup.remove(); applyRigMarks(); }
   if (t.dataset.set === 'rigMarks') { state.rigMarks = t.checked; store.set('rigMarks', t.checked); applyRigMarks(); renderPane(); }
   if (t.dataset.set === 'mvum') { state.mvum = t.checked; store.set('mvumImage', t.checked); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', t.checked ? 'visible' : 'none'); }
+  if (t.dataset.set === 'groupLine') { state.groupLine = t.checked; store.set('groupLine', t.checked); drawGroupLine(); }
   if (t.dataset.set === 'compass') { state.compass = t.checked; store.set('compass', t.checked); drawHeading(); }
   if (t.dataset.set === 'keepAwake') { state.keepAwake = t.checked; store.set('keepAwake', t.checked); void applyWakeLock(); }
 }
@@ -2451,7 +2497,7 @@ $('#btn-center').classList.add('active');
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state, chat, riderBubble, setChatOpen, drawHeading, drawRiders, updateRideMode, headsUp, drawSpots, renderMapChat, startGetOut, updateGuide, getGo: () => goRoute, trailLines, go: { loadTrailLines, buildGraph, trailRoute } } });
 // ---------------------------------------------------------------- account backup (pins, rides, settings, photos)
 // Settings that follow the rider between phones (map position, panel and install prompts stay per phone).
-const SYNCED_SETTINGS = ['theme', 'compass', 'headingUp', 'readAloud', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
+const SYNCED_SETTINGS = ['groupLine', 'theme', 'compass', 'headingUp', 'readAloud', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
 function applySettings(keys: string[]) {
   for (const k of keys) {
     if (k === 'base') { const b = store.get<BaseMapId>('base', 'topo'); if (b !== state.base && b in BASE_MAPS) setBase(b); }

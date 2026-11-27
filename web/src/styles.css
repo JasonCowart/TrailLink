@@ -655,3 +655,18 @@ button.spotmark::after { content: ''; position: absolute; left: -4px; bottom: -4
 .maplibregl-ctrl-top-left { top: calc(var(--map-top) + 104px); }
 #mapwrap.helpon .chips, #mapwrap.helpon #toast, #mapwrap.helpon #guide { top: calc(var(--map-top) + 138px); }
 #mapwrap.helpon .maplibregl-ctrl-top-left { top: calc(var(--map-top) + 164px); }
+
+/* Group line: riders placed along the trail, leader on the right */
+#groupline { position: absolute; z-index: 2; left: 104px; right: 98px; bottom: 102px; padding: 6px 10px 5px; border-radius: 14px; background: rgba(20,26,22,.62);
+  color: #fff; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); cursor: pointer; }
+#groupline[hidden] { display: none; }
+#groupline .gl-track { position: relative; height: 22px; margin: 0 10px; }
+#groupline .gl-track::before { content: ''; position: absolute; left: -6px; right: -6px; top: 10px; height: 2px; border-radius: 1px; background: linear-gradient(90deg, rgba(255,255,255,.35), rgba(255,255,255,.9)); }
+#groupline .gl-dot { position: absolute; top: 0; transform: translateX(-50%); width: 22px; height: 22px; border-radius: 50%; background: #2563EB; border: 2px solid #fff; display: grid; place-items: center;
+  font: 700 9px/1 system-ui, -apple-system, sans-serif; color: #fff; }
+#groupline .gl-dot.me { background: var(--orange); width: 16px; height: 16px; top: 3px; z-index: 1; }
+#groupline .gl-dot.late { background: #EF4444; box-shadow: 0 0 8px #EF4444; }
+#groupline .gl-text { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; margin-top: 3px; opacity: .95; white-space: nowrap; overflow: hidden; }
+#groupline .gl-text span { opacity: .8; overflow: hidden; text-overflow: ellipsis; }
+#groupline .gl-text b.late { color: #FCA5A5; }
+#mapwrap.chatopen #groupline { display: none; }

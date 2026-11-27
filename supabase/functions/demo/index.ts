@@ -9,21 +9,27 @@ const SECRET_KEY = (() => { try { const k = JSON.parse(Deno.env.get('SUPABASE_SE
   ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const db = createClient(Deno.env.get('SUPABASE_URL')!, SECRET_KEY, { auth: { persistSession: false } });
 const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, x-client-info, apikey, content-type', 'access-control-allow-methods': 'POST, OPTIONS' };
+// All three ride the same loop trail (1.2 km radius) that passes through the admin's spot: Kim ahead, Dean just
+// behind, Maria further back and slowly falling behind (so the group line and its "falling behind" alert show).
+const LOOP = 1200;
 const BOTS = [
-  { id: 'd0000000-0000-4000-8000-000000000001', name: 'Kim', r: 350, speed: 0.9, phase: 0 },
-  { id: 'd0000000-0000-4000-8000-000000000002', name: 'Dean', r: 650, speed: -0.6, phase: 2.1 },
-  { id: 'd0000000-0000-4000-8000-000000000003', name: 'Maria', r: 1000, speed: 0.4, phase: 4.2 },
+  { id: 'd0000000-0000-4000-8000-000000000001', name: 'Kim', speed: 0.10, phase: 0.35 },
+  { id: 'd0000000-0000-4000-8000-000000000002', name: 'Dean', speed: 0.10, phase: -0.15 },
+  { id: 'd0000000-0000-4000-8000-000000000003', name: 'Maria', speed: 0.07, phase: -0.45 },
 ];
 const CHATTER = ['Stopping', 'Go ahead', 'All good', 'Wait for me', 'Great view up here', 'Little muddy past the creek', 'Taking a water break', 'See you at the top'];
 const ANSWERS = ['Got it 👍', 'On my way', 'Copy that', 'Sounds good', 'Be there in 5', 'OK, waiting here'];
 const pick = <T>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 const json = (b: unknown, status = 200) => Response.json(b, { status, headers: cors });
 
-/** Where a test rider is now: a slow loop around the admin. */
-function spot(b: typeof BOTS[number], lat: number, lon: number) {
-  const a = b.phase + (Date.now() / 60000) * b.speed; // radians per minute
-  const dLat = (b.r * Math.cos(a)) / 111320, dLon = (b.r * Math.sin(a)) / (111320 * Math.cos((lat * Math.PI) / 180));
-  return { lat: lat + dLat, lon: lon + dLon, heading: ((a * 180) / Math.PI + (b.speed > 0 ? 90 : -90) + 360) % 360, speed: Math.abs(b.speed) * b.r / 60 };
+/** Where a test rider is now on the loop (angle 0 = the admin's spot; the loop's center is north of the admin). */
+function spot(b: typeof BOTS[number], lat: number, lon: number, since = Date.now()) {
+  const a = b.phase + ((Date.now() - since) / 60000) * b.speed; // radians per minute
+  const k = 111320 * Math.cos((lat * Math.PI) / 180);
+  const pos = { lat: lat + (LOOP - LOOP * Math.cos(a)) / 111320, lon: lon + (LOOP * Math.sin(a)) / k };
+  // Direction of travel: along the loop (counter-clockwise seen from above = heading east at the admin's spot).
+  const heading = ((90 - (a * 180) / Math.PI) % 360 + 360) % 360;
+  return { ...pos, heading: (heading + 360) % 360, speed: (LOOP * b.speed) / 60 };
 }
 async function say(group: string, bot: string, body: string, replyTo?: string) {
   await db.from('group_messages').insert({ id: crypto.randomUUID(), group_id: group, rider_id: bot, kind: CHATTER.slice(0, 4).includes(body) ? 'quick' : 'text', body, reply_to: replyTo ?? null });
@@ -49,8 +55,10 @@ Deno.serve(async req => {
   }
   if (!group) return json({ error: 'Start or join a group first.' }, 400);
   if (typeof lat !== 'number' || typeof lon !== 'number') return json({ error: 'No position.' }, 400);
+  const { data: joined } = await db.from('group_members').select('rider_id,joined_at').eq('group_id', group).in('rider_id', BOTS.map(b => b.id));
+  const sinceOf = (id: string) => Date.parse(joined?.find(j => j.rider_id === id)?.joined_at ?? new Date().toISOString());
   const moveAll = async () => {
-    await db.from('group_positions').upsert(BOTS.map(b => { const p = spot(b, lat, lon); return { group_id: group, rider_id: b.id, lat: p.lat, lon: p.lon, acc: 6, speed: p.speed, heading: p.heading, at: new Date().toISOString() }; }), { onConflict: 'group_id,rider_id' });
+    await db.from('group_positions').upsert(BOTS.map(b => { const p = spot(b, lat, lon, sinceOf(b.id)); return { group_id: group, rider_id: b.id, lat: p.lat, lon: p.lon, acc: 6, speed: p.speed, heading: p.heading, at: new Date().toISOString() }; }), { onConflict: 'group_id,rider_id' });
   };
 
   if (action === 'start') {
@@ -65,7 +73,7 @@ Deno.serve(async req => {
 
   if (action === 'help') {
     // Maria asks for help from where she is; she sends "I'm OK" on her own about 90 s later (on a tick).
-    const b = BOTS[2], p = spot(b, lat, lon);
+    const b = BOTS[2], p = spot(b, lat, lon, sinceOf(b.id));
     await db.from('group_messages').insert({ id: crypto.randomUUID(), group_id: group, rider_id: b.id, kind: 'help', body: 'Need help', lat: p.lat, lon: p.lon });
     return json({ ok: true, running: true });
   }

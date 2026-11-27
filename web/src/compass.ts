@@ -33,11 +33,11 @@ export class PhoneCompass {
   }
   private set(h: number) {
     const v = ((h % 360) + 360) % 360;
-    // Smooth the needle a little, and redraw at most ~15 times a second.
+    // Raw sensor value (lightly filtered); the app eases the display toward it every frame.
     if (this.heading == null) this.heading = v;
-    else { const d = ((v - this.heading + 540) % 360) - 180; this.heading = (this.heading + d * 0.35 + 360) % 360; }
-    const now = performance.now();
-    if (now - this.at > 66) { this.at = now; this.onChange(); }
+    else { const d = ((v - this.heading + 540) % 360) - 180; if (Math.abs(d) < 0.3) return; this.heading = (this.heading + d * 0.5 + 360) % 360; }
+    this.at = performance.now();
+    this.onChange();
   }
   /** True if a reading came in recently. */
   get live() { return this.heading != null && this.started; }

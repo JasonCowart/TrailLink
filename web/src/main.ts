@@ -1513,18 +1513,28 @@ compassEl.id = 'compass';
 compassEl.setAttribute('role', 'button');
 compassEl.setAttribute('aria-label', 'Compass. Tap to turn the map with your heading.');
 $('#mapwrap').append(compassEl);
-let compassFrame = 0;
+let compassFrame = 0, shownDeg: number | null = null, shownAt = 0;
 function drawHeading() {
   if (compassFrame) return;
   compassFrame = requestAnimationFrame(() => {
     compassFrame = 0;
-    const h = myHeading();
+    // Ease the shown heading toward the sensor (or GPS course) every frame, so the bar and the
+    // heading-up map glide instead of stepping. Slower easing for GPS, which only updates once a second.
+    const target = myHeading(), now = performance.now(), dt = Math.min(100, now - shownAt || 16);
+    shownAt = now;
+    if (shownDeg == null || target.source === 'map') shownDeg = target.deg;
+    else {
+      const d = ((target.deg - shownDeg + 540) % 360) - 180;
+      shownDeg = (shownDeg + d * (1 - Math.exp(-dt / (target.source === 'gps' ? 450 : 160))) + 360) % 360;
+      if (Math.abs(d) > 0.15) drawHeading(); else shownDeg = target.deg; // keep gliding until settled
+    }
+    const h = { deg: shownDeg, source: target.source };
+    if (headingUp && h.source !== 'map' && Math.abs(((h.deg - map.getBearing() + 540) % 360) - 180) > 0.2) map.setBearing(h.deg);
     // My arrow: shown whenever the heading is real (GPS course or phone compass).
     const arrow = meEl.querySelector<HTMLElement>('.arrow')!;
     arrow.hidden = h.source === 'map';
     arrow.style.rotate = `${h.deg - map.getBearing()}deg`;
     arrow.classList.toggle('compass', h.source === 'compass');
-    if (headingUp && h.source !== 'map' && Math.abs(((h.deg - map.getBearing() + 540) % 360) - 180) > 3) map.rotateTo(h.deg, { duration: 300 });
     // The compass bar.
     compassEl.hidden = !state.compass;
     if (!state.compass) return;

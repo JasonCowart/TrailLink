@@ -568,7 +568,7 @@ html[data-theme="dark"] #chatdrawer .bigbtns button:not(.urgent):not(.fullchat) 
 #headsup span { font-size: 22px; font-weight: 700; line-height: 1.2; }
 #headsup.in { animation: bubblein .25s ease-out; }
 /* Spots the group messaged on the map */
-button.spotmark { display: flex; align-items: center; gap: 5px; max-width: 200px; min-height: 0; padding: 5px 9px; border: 0; border-radius: 12px 12px 12px 3px; background: #0EA5E9; color: #fff;
+button.spotmark { display: flex; align-items: center; gap: 5px; max-width: 200px; min-height: 0; padding: 5px 9px; border: 0; border-radius: 12px 12px 12px 0; background: #0EA5E9; color: #fff;
   font: 700 12px/1.2 system-ui, sans-serif; box-shadow: 0 2px 6px rgba(0,0,0,.35); cursor: pointer; }
 button.spotmark span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 button.spotmark i { font-style: normal; font-weight: 500; opacity: .85; font-size: 11px; }
@@ -608,3 +608,7 @@ button.getoutbtn { background: #16A34A; border-color: #16A34A; color: #fff; font
 #chatdrawer .msgsys.gray { color: #fff; background: rgba(20,26,22,.55); }
 /* Keep the page itself from being pinch-zoomed (the map zooms on its own) */
 html, body { touch-action: pan-x pan-y; }
+
+/* A small dot marks the exact spot at the note's pointed corner */
+button.spotmark { position: relative; overflow: visible; }
+button.spotmark::after { content: ''; position: absolute; left: -4px; bottom: -4px; width: 8px; height: 8px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px #0EA5E9, 0 1px 3px rgba(0,0,0,.4); }

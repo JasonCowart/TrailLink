@@ -81,6 +81,7 @@ const state = {
   /** Ride shown in the elevation profile (null: the ride being recorded, else the latest ride). */
   compass: store.get('compass', true),
   groupLine: store.get('groupLine', true),
+  myRides: store.get('myRides', true),
   theme: store.get<'auto' | 'light' | 'dark'>('theme', 'auto'),
   viewRide: null as string | null,
   scrubI: null as number | null,
@@ -175,10 +176,14 @@ function addOverlays() {
   applyRatingStates();
   if (!map.getSource('mvum')) map.addSource('mvum', { type: 'raster', tiles: [MVUM_TILES], tileSize: 256, minzoom: 7, maxzoom: 17, attribution: 'USDA Forest Service MVUM' });
   if (!map.getLayer('mvum')) map.addLayer({ id: 'mvum', type: 'raster', source: 'mvum', paint: { 'raster-opacity': 0.9 }, layout: { visibility: state.mvum ? 'visible' : 'none' } });
-  // A past ride picked in the Ride tab (shown while the Ride tab is open).
+  // Your finished rides, always on the map (thin purple lines). Tap one to open it in the Ride tab.
+  if (!map.getSource('myrides')) map.addSource('myrides', { type: 'geojson', data: myRidesGeo() });
+  if (!map.getLayer('myrides-casing')) map.addLayer({ id: 'myrides-casing', type: 'line', source: 'myrides', paint: { 'line-color': '#fff', 'line-width': 5, 'line-opacity': 0.55 }, layout: { 'line-cap': 'round', 'line-join': 'round', visibility: state.myRides ? 'visible' : 'none' } });
+  if (!map.getLayer('myrides-line')) map.addLayer({ id: 'myrides-line', type: 'line', source: 'myrides', paint: { 'line-color': '#8B5CF6', 'line-width': 3, 'line-opacity': 0.85 }, layout: { 'line-cap': 'round', 'line-join': 'round', visibility: state.myRides ? 'visible' : 'none' } });
+  // The ride picked (from the list or by tapping it on the map), drawn bold on top.
   if (!map.getSource('viewride')) map.addSource('viewride', { type: 'geojson', data: viewRideGeo() });
-  if (!map.getLayer('viewride-casing')) map.addLayer({ id: 'viewride-casing', type: 'line', source: 'viewride', paint: { 'line-color': '#fff', 'line-width': 7, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-  if (!map.getLayer('viewride-line')) map.addLayer({ id: 'viewride-line', type: 'line', source: 'viewride', paint: { 'line-color': '#0EA5E9', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  if (!map.getLayer('viewride-casing')) map.addLayer({ id: 'viewride-casing', type: 'line', source: 'viewride', paint: { 'line-color': '#fff', 'line-width': 9, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  if (!map.getLayer('viewride-line')) map.addLayer({ id: 'viewride-line', type: 'line', source: 'viewride', paint: { 'line-color': '#7C3AED', 'line-width': 5 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
   if (!map.getSource('track')) map.addSource('track', { type: 'geojson', data: trackGeo() });
   if (!map.getLayer('track-casing')) map.addLayer({ id: 'track-casing', type: 'line', source: 'track', paint: { 'line-color': '#fff', 'line-width': 7, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
   if (!map.getLayer('track')) map.addLayer({ id: 'track', type: 'line', source: 'track', paint: { 'line-color': '#0EA5E9', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
@@ -247,10 +252,13 @@ map.on('click', e => {
     if (m?.pos) toast(`${m.name} · seen ${ago(m.pos.at)}${state.pos ? ` · ${(distanceM(state.pos, m.pos) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, m.pos))} of you` : ''}`);
     return;
   }
+  // Tapping one of your rides opens it in the Ride tab (chart, stats) and keeps it highlighted.
+  const ride = state.myRides && map.getLayer('myrides-line') ? map.queryRenderedFeatures([[e.point.x - 12, e.point.y - 12], [e.point.x + 12, e.point.y + 12]], { layers: ['myrides-line'] })[0] : undefined;
+  if (ride?.properties.id) { openRide(String(ride.properties.id)); return; }
   const r = 14;
   const layers = [...(state.trails ? TRAIL_LAYERS.map(l => l.id) : []), 'rider-trails'].filter(id => map.getLayer(id) && id !== 'trails-labels' && id !== 'trails-casing');
   const hits = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers });
-  if (!hits.length) return;
+  if (!hits.length) { if (state.viewRide && state.tab !== 'ride') { state.viewRide = null; afterRidePane(); } return; }
   // Prefer rider-made trails, then agency data, then OpenStreetMap.
   const rank = (f: maplibregl.MapGeoJSONFeature) => (f.layer.id === 'rider-trails' ? 0 : f.properties.src === 'OSM' ? 2 : 1);
   const best = hits.sort((a, b) => rank(a) - rank(b))[0];
@@ -364,6 +372,7 @@ function layersPanelHtml(): string {
   return `<h3>Trails</h3>
       <label class="tg">OHV trails and roads <input type="checkbox" data-set="trails" ${state.trails ? 'checked' : ''}></label>
       <label class="tg">Compass bar <input type="checkbox" data-set="compass" ${state.compass ? 'checked' : ''}></label>
+      <label class="tg">My recorded rides <input type="checkbox" data-set="myRides" ${state.myRides ? 'checked' : ''}></label>
       <label class="tg">Group line (who's falling behind) <input type="checkbox" data-set="groupLine" ${state.groupLine ? 'checked' : ''}></label>
       <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
       <p class="quiet" style="margin:12px 0 4px"><b>Color trails by</b></p>
@@ -395,7 +404,8 @@ function legendPanelHtml(): string {
         ${sw('<span class="mk harder">▲</span>', 'Harder for your rig')}
         ${sw('<span class="mk easier">▼</span>', 'Easier for your rig')}
         ${sw('<span class="lgdot">12</span>', 'Zoomed out: number of trails nearby (tap to zoom in)')}
-        ${sw(line('#0EA5E9'), 'Your recorded ride (and the ride in the elevation chart)')}
+        ${sw(line('#0EA5E9'), 'The ride you are recording now')}
+        ${sw(line('#8B5CF6'), 'Your past rides (tap one to open it; bold = the one picked)')}
         ${sw('<span class="lgdot rider">JC</span>', 'Group rider sharing location (faded: not seen for 10+ min)')}
       </div>
       <div class="btns"><button data-panel="layers">Change trail colors</button><button class="primary" data-close>Done</button></div>`;
@@ -1889,8 +1899,22 @@ function profileRide(): Track | null {
   return past.find(t => t.id === state.viewRide) ?? (state.recording ?? past[0] ?? null);
 }
 let shownProfile: { id: string; pr: Profile } | null = null;
+function finishedRides() { return state.tracks.filter(t => t.endedAt && t.points.length > 1); }
+function myRidesGeo(): FeatureCollection {
+  return { type: 'FeatureCollection', features: finishedRides().map(t => ({ type: 'Feature', properties: { id: t.id }, geometry: { type: 'LineString', coordinates: t.points.map(p => [p.lon, p.lat]) } })) };
+}
+function applyMyRides() { for (const id of ['myrides-casing', 'myrides-line']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', state.myRides ? 'visible' : 'none'); }
+function refreshMyRides() { (map.getSource('myrides') as GeoJSONSource | undefined)?.setData(myRidesGeo()); afterRidePane(); }
+function openRide(id: string) {
+  state.viewRide = id; state.scrubI = null; scrubMarker.remove();
+  if (state.detail) { state.detail = false; tapMarker.remove(); }
+  popup.remove(); state.follow = false; $('#btn-center').classList.remove('active');
+  state.tab = 'ride'; setPanel(true); render(); $("#pane").scrollTop = 0;
+  const t = state.tracks.find(x => x.id === id); if (t) toast(t.name);
+}
 function viewRideGeo(): FeatureCollection {
-  const t = state.tab === 'ride' ? profileRide() : null;
+  // In the Ride tab: the ride in the chart. Elsewhere: the ride you picked, until you tap the map away from it.
+  const t = state.tab === 'ride' ? profileRide() : state.viewRide ? state.tracks.find(x => x.id === state.viewRide) ?? null : null;
   return { type: 'FeatureCollection', features: t && t !== state.recording && t.points.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: t.points.map(p => [p.lon, p.lat]) } }] : [] };
 }
 /** Pins within 60 m of the ride, placed at their distance along it. */
@@ -1996,7 +2020,7 @@ $('#pane').addEventListener('pointermove', e => { if (state.scrubbing) scrubFrom
 for (const ev of ['pointerup', 'pointercancel'] as const) $('#pane').addEventListener(ev, () => { state.scrubbing = false; });
 
 // ---------------------------------------------------------------- recording
-function persistTracks() { store.saveTracks(state.tracks); }
+function persistTracks() { store.saveTracks(state.tracks); refreshMyRides(); }
 function startRecording() {
   const t: Track = { id: String(Date.now()), name: `Ride ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`, points: [], startedAt: Date.now() };
   state.viewRide = null; state.scrubI = null;
@@ -2095,7 +2119,8 @@ const views: Record<Tab, () => string> = {
       ${profileHtml()}
       ${pastRides.length ? `<h2>Past rides</h2>${pastRides.slice(0, 20).map(t => { const st = stats(t.points); const on = profileRide()?.id === t.id; return `
         <div class="row ride${on ? ' on' : ''}"><button class="pinmain grow" data-viewride="${t.id}" aria-pressed="${on}"><b>${esc(t.name)}</b><span class="quiet">${st.miles.toFixed(1)} mi · ${st.movingMin} min moving · ${st.gainFt.toLocaleString()} ft climbed${on ? ' · in the chart' : ''}</span></button>
-        <button class="ibtn" data-gpx="${t.id}" aria-label="Export ${esc(t.name)} as GPX" title="Export GPX">${ICONS.download}</button></div>`; }).join('')}` : ''}`;
+        <button class="ibtn" data-gpx="${t.id}" aria-label="Export ${esc(t.name)} as GPX" title="Export GPX">${ICONS.download}</button><button class="ibtn" data-delride="${t.id}" aria-label="Delete ${esc(t.name)}">${ICONS.x}</button></div>`; }).join('')}
+      <p class="quiet">Your rides stay on the map as purple lines. Tap one on the map to open it here. Turn them off with <b>My recorded rides</b> in the Layers panel.</p>` : ''}`;
   },
   trails() {
     const mine = community.trails();
@@ -2310,6 +2335,7 @@ function paneClick(e: Event) {
   if (b.dataset.showtrail) { const t = community.trails().find(x => x.id === b.dataset.showtrail); if (t) { state.follow = false; const xs = t.coords.map(c => c[0]), ys = t.coords.map(c => c[1]); map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: viewPad(24), maxZoom: 15 }); } }
   if (b.dataset.deltrail) { const t = community.trails().find(x => x.id === b.dataset.deltrail); if (t) sheet(`<h3>Delete ${esc(t.name)}?</h3><p>This removes the trail from this phone.</p><div class="btns"><button data-close>Keep it</button><button class="danger" data-act2="deltrail" data-id="${t.id}">Delete</button></div>`); }
   if (b.dataset.gpx) downloadGpx(b.dataset.gpx);
+  if (b.dataset.delride) { const t = state.tracks.find(x => x.id === b.dataset.delride); if (t) sheet(`<h3>Delete ${esc(t.name)}?</h3><p>This removes the ride from the map, this phone and your backup. Export it as GPX first if you want to keep a copy.</p><div class="btns"><button data-close>Keep it</button><button class="danger" data-act2="delride" data-id="${t.id}">Delete</button></div>`); return; }
   if (b.dataset.viewride) { state.viewRide = b.dataset.viewride; state.scrubI = null; scrubMarker.remove(); renderPane(); fitRide(); return; }
   if (b.dataset.delpin) { const pin = state.pins.find(p => p.id === b.dataset.delpin); if (pin) { removePin(pin.id); if (pin.photos?.length) toast(`Pin deleted. Its photo${pin.photos.length === 1 ? ' is' : 's are'} kept under "Photos from deleted pins".`); } }
   if (b.dataset.openpin) pinSheet(b.dataset.openpin);
@@ -2346,6 +2372,7 @@ function paneChange(e: Event) {
   if (t.dataset.set === 'trails') { state.trails = t.checked; store.set('trails', t.checked); for (const l of [...TRAIL_LAYERS, ...OVERVIEW_LAYERS]) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', t.checked ? 'visible' : 'none'); if (!t.checked) popup.remove(); applyRigMarks(); }
   if (t.dataset.set === 'rigMarks') { state.rigMarks = t.checked; store.set('rigMarks', t.checked); applyRigMarks(); renderPane(); }
   if (t.dataset.set === 'mvum') { state.mvum = t.checked; store.set('mvumImage', t.checked); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', t.checked ? 'visible' : 'none'); }
+  if (t.dataset.set === 'myRides') { state.myRides = t.checked; store.set('myRides', t.checked); applyMyRides(); }
   if (t.dataset.set === 'groupLine') { state.groupLine = t.checked; store.set('groupLine', t.checked); drawGroupLine(); }
   if (t.dataset.set === 'compass') { state.compass = t.checked; store.set('compass', t.checked); drawHeading(); }
   if (t.dataset.set === 'keepAwake') { state.keepAwake = t.checked; store.set('keepAwake', t.checked); void applyWakeLock(); }
@@ -2418,6 +2445,7 @@ $('#sheet').addEventListener('click', e => {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-act2], button[data-vote], button[data-unvote]'); if (!b) return;
   if (b.dataset.unvote) { void vote(b.dataset.unvote, null); return; }
   if (b.dataset.vote && b.dataset.tid) { void vote(b.dataset.tid, Number(b.dataset.vote)); return; }
+  if (b.dataset.act2 === 'delride' && b.dataset.id) { const id = b.dataset.id; state.tracks = state.tracks.filter(t => t.id !== id); if (state.viewRide === id) { state.viewRide = null; state.scrubI = null; scrubMarker.remove(); } persistTracks(); closeSheet(); renderPane(); toast('Ride deleted.'); return; }
   if (b.dataset.act2 === 'deltrail' && b.dataset.id) { void community.deleteTrail(b.dataset.id).then(() => { closeSheet(); popup.remove(); refreshRiderTrails(); renderPane(); }); return; }
   if (b.dataset.act2 === 'seebadges') { closeSheet(); state.tab = 'badges'; setPanel(true); render(); $('#pane').scrollTop = 0; return; }
   if (b.dataset.act2 === 'badgemap' && b.dataset.id) { const t = community.badgeTrails.find(x => x.id === b.dataset.id); if (t) { const bb = badgeBbox(t.geom); closeSheet(); state.follow = false; map.fitBounds([[bb.w, bb.s], [bb.e, bb.n]], { padding: viewPad(24) }); } return; }
@@ -2513,7 +2541,7 @@ $('#btn-center').classList.add('active');
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state, chat, riderBubble, setChatOpen, drawHeading, drawRiders, updateRideMode, headsUp, drawSpots, renderMapChat, startGetOut, updateGuide, getGo: () => goRoute, trailLines, go: { loadTrailLines, buildGraph, trailRoute } } });
 // ---------------------------------------------------------------- account backup (pins, rides, settings, photos)
 // Settings that follow the rider between phones (map position, panel and install prompts stay per phone).
-const SYNCED_SETTINGS = ['groupLine', 'theme', 'compass', 'headingUp', 'readAloud', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
+const SYNCED_SETTINGS = ['groupLine', 'myRides', 'theme', 'compass', 'headingUp', 'readAloud', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
 function applySettings(keys: string[]) {
   for (const k of keys) {
     if (k === 'base') { const b = store.get<BaseMapId>('base', 'topo'); if (b !== state.base && b in BASE_MAPS) setBase(b); }
@@ -2522,6 +2550,7 @@ function applySettings(keys: string[]) {
     if (k === 'rigMarks') { state.rigMarks = store.get('rigMarks', true); applyRigMarks(); }
     if (k === 'mvumImage') { state.mvum = store.get('mvumImage', false); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', state.mvum ? 'visible' : 'none'); }
     if (k === 'theme') { state.theme = store.get('theme', 'auto'); applyTheme(); }
+    if (k === 'myRides') { state.myRides = store.get('myRides', true); applyMyRides(); }
     if (k === 'compass') { state.compass = store.get('compass', true); drawHeading(); }
     if (k === 'keepAwake') { state.keepAwake = store.get('keepAwake', true); void applyWakeLock(); }
     if (k === 'loosePhotos') loosePhotos = store.get('loosePhotos', []);
@@ -2548,7 +2577,7 @@ const backup = new Backup(community, {
       }
       if (tracks.length) {
         for (const c of tracks) { if (state.recording?.id === c.id) continue; state.tracks = state.tracks.filter(t => t.id !== c.id); if (c.data) state.tracks.push(c.data as Track); }
-        state.tracks.sort((a, b) => b.startedAt - a.startedAt); store.saveTracks(state.tracks);
+        state.tracks.sort((a, b) => b.startedAt - a.startedAt); store.saveTracks(state.tracks); refreshMyRides();
       }
       for (const c of settings) { if (c.data == null) localStorage.removeItem(`traillink.${c.id}`); else store.set(c.id, c.data); }
       if (settings.length) applySettings(settings.map(c => c.id));

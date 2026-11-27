@@ -14,7 +14,7 @@ import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from
 import { Backup, type Change } from './backup.ts';
 import { GroupChat, QUICK, type ChatMessage } from './messages.ts';
 import { PhoneCompass, compassHtml, type CompassMark, type HeadingSource } from './compass.ts';
-import { buildGraph, progress, trackRoute, trailRoute, type LL, type Route } from './getout.ts';
+import { buildGraph, loadTrailLines, progress, trackRoute, trailRoute, type LL, type Route } from './getout.ts';
 import qrcode from 'qrcode-generator';
 import jsQR from 'jsqr';
 import { PIN_ICONS, REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
@@ -1073,7 +1073,10 @@ async function computeRoute(from: LL, to: LL): Promise<Route> {
   if (map.getZoom() < 10) map.setZoom(10);
   await new Promise<void>(r => { const t = setTimeout(r, 5000); map.once('idle', () => { clearTimeout(t); r(); }); });
   const tracks = [state.recording, ...state.tracks].filter(Boolean).map(t => t!.points as LL[]);
-  const viaTrails = trailRoute(buildGraph(trailLines()), from, to);
+  // Full-detail trail tiles (saved ones work offline); if none load, use what's drawn on the map.
+  let lines = await loadTrailLines(new URL(TRAIL_TILES, location.href).href, from, to);
+  if (!lines.length) lines = trailLines();
+  const viaTrails = trailRoute(buildGraph(lines), from, to);
   const viaTrack = trackRoute(tracks, from, to);
   const best = [viaTrails, viaTrack].filter((r): r is Route => !!r).sort((x, y) => x.length - y.length)[0];
   return best ?? { coords: [from, to], length: distanceM(from, to), via: 'straight' };

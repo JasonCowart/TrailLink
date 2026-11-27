@@ -4,6 +4,8 @@
 //  2. Back along your own recorded track (you know you can drive it).
 // If neither reaches, it falls back to a straight line with distance and direction.
 import { distanceM } from '../../src/core/geo.ts';
+import { VectorTile } from '@mapbox/vector-tile';
+import Pbf from 'pbf';
 
 export interface LL { lat: number; lon: number }
 export interface Route { coords: LL[]; length: number; via: 'trails' | 'track' | 'straight' }
@@ -32,7 +34,56 @@ export function buildGraph(lines: number[][][]): Graph {
       prev = id;
     }
   }
-  return { nodes, adj };
+  const g = { nodes, adj };
+  joinLooseEnds(g);
+  return g;
+}
+
+/** Join loose trail ends to the nearest other trail point within 25 m (agency lines often stop just short of a junction). */
+function joinLooseEnds(g: Graph) {
+  const cell = (p: LL) => `${Math.floor(p.lon / 3e-4)}:${Math.floor(p.lat / 2.3e-4)}`; // ~25 m cells
+  const grid = new Map<string, number[]>();
+  g.nodes.forEach((p, i) => { const k = cell(p); (grid.get(k) ?? grid.set(k, []).get(k)!).push(i); });
+  for (let i = 0; i < g.nodes.length; i++) {
+    if (g.adj[i].length !== 1) continue;
+    const p = g.nodes[i], [cx, cy] = cell(p).split(':').map(Number);
+    let best = -1, bd = 25;
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (const j of grid.get(`${cx + dx}:${cy + dy}`) ?? []) {
+      if (j === i || g.adj[i].some(e => e.to === j)) continue;
+      const d = distanceM(p, g.nodes[j]);
+      if (d < bd && d > 0) { bd = d; best = j; }
+    }
+    if (best >= 0) { g.adj[i].push({ to: best, w: bd }); g.adj[best].push({ to: i, w: bd }); }
+  }
+}
+
+/** Trail lines from the full-detail (zoom 12) trail tiles covering a box; saved tiles work with no signal. */
+export async function loadTrailLines(tileUrl: string, a: LL, b: LL, margin = 0.02): Promise<number[][][]> {
+  const z = 12, n = 2 ** z;
+  const tx = (lon: number) => Math.floor(((lon + 180) / 360) * n);
+  const ty = (lat: number) => { const r = (lat * Math.PI) / 180; return Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n); };
+  const west = Math.min(a.lon, b.lon) - margin, east = Math.max(a.lon, b.lon) + margin;
+  const south = Math.min(a.lat, b.lat) - margin, north = Math.max(a.lat, b.lat) + margin;
+  const x0 = tx(west), x1 = tx(east), y0 = ty(north), y1 = ty(south);
+  if ((x1 - x0 + 1) * (y1 - y0 + 1) > 144) return []; // too far for this (over ~100 km): use the recorded track or straight line
+  const jobs: Promise<number[][][]>[] = [];
+  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+    jobs.push(fetch(tileUrl.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y))).then(async r => {
+      if (!r.ok) return [];
+      const t = new VectorTile(new Pbf(new Uint8Array(await r.arrayBuffer())));
+      const layer = t.layers.trails; if (!layer) return [];
+      const out: number[][][] = [];
+      for (let i = 0; i < layer.length; i++) {
+        const f = layer.feature(i);
+        if (f.properties.utv === 'closed') continue;
+        const g = f.toGeoJSON(x, y, z).geometry;
+        if (g.type === 'LineString') out.push(g.coordinates as number[][]);
+        else if (g.type === 'MultiLineString') out.push(...(g.coordinates as number[][][]));
+      }
+      return out;
+    }).catch(() => []));
+  }
+  return (await Promise.all(jobs)).flat();
 }
 
 function nearestNode(g: Graph, p: LL, within: number): { id: number; d: number } | null {

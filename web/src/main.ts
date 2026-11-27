@@ -12,6 +12,7 @@ import { askToKeepStorage, clearAllTiles, downloadArea, forgetArea, planDownload
 import { shouldKeep, stats, store, toGpx, type Pin, type Pt, type Track } from './track.ts';
 import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from './photos.ts';
 import { Backup, type Change } from './backup.ts';
+import { GroupChat, QUICK, type ChatMessage } from './messages.ts';
 import { PIN_ICONS, REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
 import { FT, GRADES, MI, buildProfile, distAtX, indexAt, profileSvg, scrubXY, W as PROFILE_W, type Profile, type ProfileMark } from './profile.ts';
 // Small line icons for compact buttons.
@@ -21,6 +22,8 @@ const ICONS = {
   move: ico('<path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>'),
   camera: ico('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
   x: ico('<path d="M6 6l12 12M18 6 6 18"/>'),
+  send: ico('<path d="M4 12l16-8-6 16-2.5-6.5z"/><path d="M11.5 13.5L20 4"/>'),
+  bell: ico('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>'),
   download: ico('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
   info: ico('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>'),
   pencil: ico('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
@@ -347,13 +350,13 @@ function basemapPanelHtml(): string {
       ${areas.length ? '<div class="btns"><button data-act="clear-tiles">Delete all saved maps</button></div>' : ''}
       <div class="btns"><button data-close>Done</button></div>`;
 }
-function panelHtml() { return state.panel === 'layers' ? layersPanelHtml() : state.panel === 'legend' ? legendPanelHtml() : state.panel === 'riders' ? `${groupHtml(true)}<div class="btns"><button class="primary" data-close>Done</button></div>` : basemapPanelHtml(); }
+function panelHtml() { return state.panel === 'layers' ? layersPanelHtml() : state.panel === 'legend' ? legendPanelHtml() : state.panel === 'riders' ? groupHtml(true) : basemapPanelHtml(); }
 function openPanel(p: 'layers' | 'basemap' | 'legend' | 'riders') { sheet('', 'panel'); state.panel = p; refreshPanel(); }
 /** Keep an open panel current (download progress, toggles). */
 function refreshPanel() {
   if (!state.panel || $('#sheet').hidden || typingIn('#sheet')) return;
   const body = $('#sheet-body'), top = body.scrollTop;
-  body.innerHTML = framed(panelHtml()); body.scrollTop = top; fillStorage();
+  body.innerHTML = framed(panelHtml()); body.scrollTop = top; fillStorage(); afterChat();
 }
 function fillStorage() { if (state.panel === 'basemap') void storageSummary().then(s => { const el = document.getElementById('storage'); if (el) el.textContent = s; }); }
 
@@ -473,7 +476,7 @@ function groupHtml(compact: boolean): string {
     <form id="groupstart" class="form"><label>Start a group<input name="name" required maxlength="40" placeholder="e.g. Saturday at Taylor Park"></label>
       <div class="btns"><button class="primary" ${state.groupBusy ? 'disabled' : ''}>Start group</button></div></form>
     <form id="groupjoin" class="form"><label>Or join with a code<input name="code" required maxlength="8" autocapitalize="characters" autocomplete="off" placeholder="6-letter code" style="text-transform:uppercase;letter-spacing:3px"></label>
-      <div class="btns"><button ${state.groupBusy ? 'disabled' : ''}>Join group</button></div></form>${err}`;
+      <div class="btns"><button ${state.groupBusy ? 'disabled' : ''}>Join group</button></div></form>${err}${compact ? '' : rideLogHtml()}`;
   const me = community.session?.user.id;
   const members = [...community.members].sort((a, b) => (a.riderId === me ? -1 : b.riderId === me ? 1 : a.name.localeCompare(b.name)));
   const sharingCount = members.filter(m => m.sharing).length;
@@ -482,11 +485,91 @@ function groupHtml(compact: boolean): string {
     <label class="tg"><span><b>Share my location</b><br><span class="quiet">${community.sharing ? 'The group can see where you are.' : 'Off: the group can\'t see you.'}</span></span>
       <input type="checkbox" data-set="sharing" ${community.sharing ? 'checked' : ''} ${state.groupBusy ? 'disabled' : ''}></label>
     ${err}
+    ${chatHtml(g.id, false)}
     <p class="quiet" style="margin:12px 0 4px"><b>Riders (${members.length})</b> · ${sharingCount} sharing${community.groupUpdated ? ` · updated ${ago(community.groupUpdated)}` : ''}${navigator.onLine ? '' : ' · no signal'}</p>
     ${members.map(memberRow).join('') || '<p class="quiet">Loading…</p>'}
     <div class="btns">${compact ? '' : '<button data-act="grouprefresh">Refresh</button>'}<button class="danger" data-act="groupleave">Leave group</button></div>
-    <p class="quiet">Group messages are coming next.</p>`;
+    ${compact ? '' : rideLogHtml()}`;
 }
+
+// ---------------------------------------------------------------- group messages (kept as a ride log)
+const chat = new GroupChat(community);
+const timeOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+function msgHtml(m: ChatMessage): string {
+  const mine = m.riderId === community.uid;
+  const when = m.pending ? 'waiting for signal' : timeOf(m.createdAt ?? m.sentAt);
+  const body = m.kind === 'location'
+    ? `<button class="msgloc" data-chatgo="${m.id}">${inl(ICONS.pin, 16)} ${mine ? 'My location' : 'Location'}${m.body ? `: ${esc(m.body)}` : ''}${state.pos && m.lat != null ? ` · ${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))}` : ''}</button>`
+    : `<span class="msgtext${m.kind === 'quick' ? ' quick' : ''}">${esc(m.body)}</span>`;
+  return `<div class="msg${mine ? ' mine' : ''}${m.pending ? ' pending' : ''}"><div class="msgmeta">${mine ? 'You' : esc(m.by)} · ${when}</div>${body}</div>`;
+}
+function chatHtml(groupId: string, readonly: boolean): string {
+  const msgs = chat.thread(groupId);
+  return `<div class="chatwrap"><div class="chat" data-chat="${groupId}">${msgs.length ? msgs.map(msgHtml).join('') : '<p class="quiet chatempty">No messages yet. Tap a quick message or type one below.</p>'}</div>
+    ${readonly ? '' : `<div class="quickrow">${QUICK.map(q => `<button class="qchip${q === 'Need help' ? ' urgent' : ''}" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+    <form id="chatform" class="chatform"><input name="msg" maxlength="500" autocomplete="off" enterkeyhint="send" placeholder="Message the group">
+      <button type="button" class="ibtn" data-chatloc aria-label="Send my location" title="Send my location">${ICONS.pin}</button>
+      <button class="ibtn sendbtn" aria-label="Send">${ICONS.send}</button></form>
+    ${chat.pushSupported ? `<label class="tg small"><span>${inl(ICONS.bell, 16)} Notify me of new messages</span><input type="checkbox" data-set="pushOn" ${chat.pushOn ? 'checked' : ''}></label>` : ''}`}</div>`;
+}
+function rideLogHtml(): string {
+  const past = chat.log.filter(l => l.id !== community.group?.id);
+  if (!past.length) return '';
+  return `<details class="about"><summary>${inl(ICONS.info, 16)} Ride log (${past.length})</summary>
+    ${past.map(l => `<div class="row"><button class="pinmain" data-chatlog="${l.id}"><b>${esc(l.name)}</b><span class="quiet">${new Date(l.joinedAt).toLocaleDateString()}</span></button></div>`).join('')}</details>`;
+}
+/** After the chat is drawn: scroll to the newest message and count it as read. */
+function afterChat() {
+  for (const el of document.querySelectorAll<HTMLElement>('.chat')) {
+    el.scrollTop = el.scrollHeight;
+    if (el.offsetParent) chat.markRead(el.dataset.chat!);
+  }
+}
+function updateUnread() {
+  const n = chat.unread(community.group?.id);
+  for (const el of [document.querySelector('#tabs button[data-tab="group"]'), $('#btn-riders')]) if (el) { if (n) el.setAttribute('data-unread', n > 9 ? '9+' : String(n)); else el.removeAttribute('data-unread'); }
+}
+const chatViewOpen = () => (state.tab === 'group' && !$('#app').classList.contains('collapsed')) || (state.panel === 'riders' && !$('#sheet').hidden);
+chat.onChange = () => {
+  updateUnread();
+  if (typingIn('#pane') || typingIn('#sheet')) { afterChat(); return; }
+  if (state.tab === 'group' && !state.detail) renderPane();
+  if (state.panel === 'riders') refreshPanel();
+  afterChat();
+};
+chat.onIncoming = m => { if (!chatViewOpen()) toast(`${m.by}: ${m.kind === 'location' ? 'shared their location' : m.body}`); };
+const chatMarker = new maplibregl.Marker({ element: Object.assign(document.createElement('div'), { className: 'tapmark' }) });
+document.addEventListener('click', e => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('[data-quick],[data-chatloc],[data-chatgo],[data-chatlog]');
+  if (!b) return;
+  try {
+    if (b.dataset.quick) chat.send('quick', b.dataset.quick);
+    if (b.hasAttribute('data-chatloc')) { if (!state.pos) { toast('Waiting for GPS.'); return; } chat.send('location', '', state.pos); }
+  } catch (err) { toast((err as Error).message); return; }
+  if (b.dataset.chatgo) {
+    const m = Object.values(community.group ? [chat.thread(community.group.id)] : []).flat().find(x => x.id === b.dataset.chatgo)
+      ?? chat.log.flatMap(l => chat.thread(l.id)).find(x => x.id === b.dataset.chatgo);
+    if (m?.lat != null) { chatMarker.setLngLat([m.lon!, m.lat]).addTo(map); state.follow = false; $('#btn-center').classList.remove('active'); map.flyTo({ center: [m.lon!, m.lat], zoom: Math.max(map.getZoom(), 15) }); if (state.panel) closeSheet(); }
+  }
+  if (b.dataset.chatlog) {
+    const l = chat.log.find(x => x.id === b.dataset.chatlog); if (!l) return;
+    const show = () => sheet(`<h3>${esc(l.name)}</h3><p class="quiet">Ride log · ${new Date(l.joinedAt).toLocaleDateString()}</p>${chatHtml(l.id, true)}`);
+    show(); afterChat(); void chat.refresh(l.id).then(() => { if (!$('#sheet').hidden) { show(); afterChat(); } });
+  }
+});
+/** The message box (Group tab or the Riders panel). */
+function chatSubmit(form: HTMLFormElement): boolean {
+  if (form.id !== 'chatform') return false;
+  const input = form.querySelector<HTMLInputElement>('input[name=msg]')!;
+  try { chat.send('text', input.value); input.value = ''; input.focus(); } catch (err) { toast((err as Error).message); }
+  return true;
+}
+document.addEventListener('change', e => {
+  const t = e.target as HTMLInputElement;
+  if (t.dataset.set !== 'pushOn') return;
+  (t.checked ? chat.enablePush().then(() => toast('Notifications on for new group messages.')) : chat.disablePush().then(() => toast('Notifications off.')))
+    .catch((err: Error) => { t.checked = false; toast(err.message); });
+});
 
 async function shareGroupCode() {
   const g = community.group!;
@@ -1430,6 +1513,7 @@ function renderPane() {
   hydratePhotos(pane);
   refreshPanel();
   afterRidePane();
+  afterChat();
 }
 function render() {
   document.querySelectorAll<HTMLButtonElement>('#tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === state.tab)));
@@ -1531,6 +1615,7 @@ $('#pane').addEventListener('change', paneChange);
 $('#sheet').addEventListener('change', e => { if (state.panel) paneChange(e); });
 $('#pane').addEventListener('submit', e => {
   e.preventDefault();
+  if (chatSubmit(e.target as HTMLFormElement)) return;
   if (groupSubmit(e.target as HTMLFormElement)) return;
   const form = e.target as HTMLFormElement, f = new FormData(form);
   if (form.id === 'signinform') {
@@ -1560,6 +1645,7 @@ $('#sheet').addEventListener('change', e => {
 $('#sheet').addEventListener('input', e => { if ((e.target as HTMLElement).closest('#vehicleform')) updateRigPreview(); });
 $('#sheet').addEventListener('submit', e => {
   e.preventDefault();
+  if (chatSubmit(e.target as HTMLFormElement)) return;
   if (groupSubmit(e.target as HTMLFormElement)) return;
   if ((e.target as HTMLElement).id === 'renameform') { community.setName(String(new FormData(e.target as HTMLFormElement).get('name') ?? '')); closeSheet(); void community.sync(); renderPane(); }
   if ((e.target as HTMLElement).id === 'badgeform' && badgeDraft) {
@@ -1775,8 +1861,12 @@ $('#gatecode').addEventListener('submit', e => {
 $('#gateback').addEventListener('click', () => { $('#gateform').hidden = false; $('#gateintro').hidden = false; $('#gatecode').hidden = true; $('#gatemsg').textContent = ''; });
 setInterval(() => { if (document.visibilityState === 'visible') void community.sync(); }, 120_000);
 // Group positions: check for updates every 20 seconds while the app is open.
-setInterval(() => { if (document.visibilityState === 'visible' && community.group) void community.refreshGroup(); }, 20_000);
-void community.init().then(() => { updateGate(); void community.refreshGroup(); }, updateGate);
+setInterval(() => { if (document.visibilityState === 'visible' && community.group) void community.refreshGroup().then(() => chat.refresh()); }, 20_000);
+window.addEventListener('online', () => { void chat.flush(); void chat.refresh(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void chat.refresh(); });
+// Opened from a message notification: go to the group.
+if (location.hash === '#group') { state.tab = 'group'; history.replaceState(null, '', location.pathname); setTimeout(() => { setPanel(true); render(); }, 0); }
+void community.init().then(() => { updateGate(); void community.refreshGroup().then(() => { void chat.refresh(); void chat.refreshLog(); }); }, updateGate);
 setInterval(() => { if (community.group) drawRiders(); }, 60_000); // keep 'x min ago' labels current
 // Riders' reports: check every minute while the app is open.
 setInterval(() => { if (document.visibilityState === 'visible') void community.fetchSharedPins().then(() => community.onChange()); }, 60_000);

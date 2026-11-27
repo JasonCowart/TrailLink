@@ -365,3 +365,28 @@ button.badgerow { background: none; border-bottom: 1px solid var(--line); border
 .legend .lg { font-size: 13px; }
 .member .avatar { width: 34px; height: 34px; font-size: 13px; }
 details.cleared summary { font-size: 13px; }
+
+/* Group messages */
+.chatwrap { margin: 6px 0 4px; }
+.chat { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 0; overscroll-behavior: contain; }
+.chatempty { margin: 6px 0; }
+.msg { max-width: 82%; align-self: flex-start; }
+.msg.mine { align-self: flex-end; text-align: right; }
+.msgmeta { font-size: 11px; color: var(--quiet); margin: 0 4px 1px; }
+.msgtext { display: inline-block; text-align: left; padding: 6px 10px; border-radius: 14px 14px 14px 4px; background: var(--sand); font-size: 15px; line-height: 1.3; overflow-wrap: anywhere; }
+.msg.mine .msgtext { border-radius: 14px 14px 4px 14px; background: var(--pine); color: #fff; }
+.msgtext.quick { font-weight: 700; }
+.msg.pending { opacity: .6; }
+button.msgloc { min-height: 34px; padding: 4px 10px; font-size: 14px; border-radius: 14px; background: color-mix(in srgb, #0EA5E9 14%, var(--paper)); border-color: transparent; }
+.quickrow { display: flex; gap: 6px; overflow-x: auto; padding: 6px 0 2px; scrollbar-width: none; }
+.quickrow::-webkit-scrollbar { display: none; }
+button.qchip { flex: none; min-height: 34px; padding: 0 12px; border-radius: 99px; font-size: 13px; font-weight: 600; }
+button.qchip.urgent { border-color: var(--sos); color: var(--sos); }
+.chatform { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+.chatform input { flex: 1; min-height: 40px; border: 1px solid var(--line); border-radius: 99px; padding: 0 14px; font-size: 16px; background: var(--paper); }
+.chatform .sendbtn { background: var(--action); border-color: var(--action); color: #fff; border-radius: 50%; }
+label.tg.small { min-height: 38px; font-size: 13px; color: var(--quiet); border-bottom: 0; }
+/* Unread count on the Group tab and the Riders map button */
+#tabs button[data-unread], #btn-riders[data-unread] { position: relative; }
+#tabs button[data-unread]::after, #btn-riders[data-unread]::after { content: attr(data-unread); position: absolute; top: 4px; right: 50%; margin-right: -30px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--sos); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+#btn-riders[data-unread]::after { top: -4px; right: -4px; margin: 0; }

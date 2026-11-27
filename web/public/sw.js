@@ -1,5 +1,5 @@
 // TrailLink service worker: makes the app open with no signal, and serves saved map tiles offline.
-const APP_CACHE = 'traillink-app-v3';
+const APP_CACHE = 'traillink-app-v4';
 const TILE_CACHE = 'traillink-tiles-v1'; // same name as src/offline.ts
 const RUNTIME_TILE_LIMIT = 3000; // tiles kept from normal browsing (saved areas are not trimmed)
 
@@ -80,3 +80,23 @@ async function trim(cache) {
     if (keys.length > RUNTIME_TILE_LIMIT * 4) for (const k of keys.slice(0, keys.length - RUNTIME_TILE_LIMIT * 4)) await cache.delete(k);
   } finally { trimming = false; }
 }
+
+// Group message notifications (sent by the "push" function when the app is closed or in the background).
+self.addEventListener('push', event => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch { d = { body: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(d.title || 'TrailLink', {
+    body: d.body || 'New message', tag: d.tag, renotify: true,
+    icon: `${self.registration.scope}icon-192.png`, badge: `${self.registration.scope}icon-192.png`,
+    data: { url: new URL(d.url || './#group', self.registration.scope).href },
+  }));
+});
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || self.registration.scope;
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const w of wins) { if ('focus' in w) { await w.focus(); try { await w.navigate(url); } catch { /* same page */ } return; } }
+    await self.clients.openWindow(url);
+  })());
+});

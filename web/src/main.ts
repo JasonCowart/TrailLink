@@ -20,6 +20,7 @@ const ICONS = {
   move: ico('<path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>'),
   camera: ico('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
   x: ico('<path d="M6 6l12 12M18 6 6 18"/>'),
+  pencil: ico('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
   pin: ico('<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.5"/>'),
   thumb: ico('<path d="M7 11v9H4v-9z"/><path d="M7 11l4-7c1.4 0 2.3 1.1 2 2.4L12.4 10H18a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 16.8 20H7"/>'),
   check: ico('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/>'),
@@ -870,7 +871,7 @@ function voteButtons(p: SharedPin) {
 function remotePinSheet(id: string) {
   const p = community.sharedPins.find(x => x.id === id); if (!p) return;
   const hazard = REPORT_KINDS.has(p.kind);
-  sheet(`<h3 class="withicon">${REPORT_KINDS.has(p.kind) ? reportIcon(p.report, 36) : ''}${esc(sharedTitle(p))}</h3>
+  sheet(`<h3 class="withicon">${pinIcon(p.kind, p.report, 36)}${esc(sharedTitle(p))}</h3>
     <p class="quiet">${hazard ? hazardStatus(p) : `Shared with your group by ${esc(p.by)} ${ago(p.createdAt)}`}${state.pos ? ` · ${(distanceM(state.pos, p) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, p))}` : ''}</p>
     ${hazard ? `<p class="quiet">Rode past it? Let other riders know.</p>${voteButtons(p)}` : ''}
     <div class="btns"><button data-act2="gotoshared" data-id="${p.id}">Show on map</button>${community.isReviewer ? `<button class="danger" data-act2="removeshared" data-id="${p.id}">Remove for everyone</button>` : ''}<button class="primary" data-close>Done</button></div>`);
@@ -952,9 +953,9 @@ function openReport() {
 function reported(pin: Pin | null) {
   if (!pin) return;
   if (checkBadges()) return;
-  sheet(`<h3 class="withicon">${pin.report ? reportIcon(pin.report, 36) : ''}${esc(pinTitle(pin))} pinned</h3>
-    <p class="quiet">Add a photo or a note, or move the pin if it's not quite right.</p>
-    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, `${inl(ICONS.camera)} Add photo`)}<button data-act2="pinnote" data-id="${pin.id}">Add note</button></div>
+  sheet(`<h3 class="withicon">${pinIcon(pin.kind, pin.report, 36)}${esc(pinTitle(pin))} pinned</h3>
+    <p class="quiet">Add a photo or a name, or move the pin if it's not quite right.</p>
+    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, `${inl(ICONS.camera)} Add photo`)}<button data-act2="pinnote" data-id="${pin.id}">${inl(ICONS.pencil)} Add name</button></div>
     <div class="btns"><button data-act2="movepin" data-id="${pin.id}">Move pin</button><button data-act2="undopin" data-id="${pin.id}">Undo</button><button class="primary" data-close>Done</button></div>`);
 }
 
@@ -1066,12 +1067,13 @@ function pinSheet(pinId: string) {
     ? `<div class="card"><b>Shared with all riders</b><div class="quiet">${sp ? hazardStatus(sp) : community.signedIn ? 'Uploads when you have signal.' : 'Sign in (Trails tab) to share it.'}</div>${sp ? voteButtons(sp) : ''}</div>`
     : `<label class="tg"><span><b>Share with my group</b><br><span class="quiet">${pin.share === 'group' ? 'Your ride group can see this pin.' : community.group ? `Private. Turn on to show it to ${esc(community.group.name)}.` : 'Private. Join a ride group to share it.'}</span></span>
         <input type="checkbox" data-pinshare="${pin.id}" ${pin.share === 'group' ? 'checked' : ''} ${community.group || pin.share ? '' : 'disabled'}></label>`;
-  sheet(`<div data-pinsheet="${pin.id}"><h3 class="withicon">${pin.report ? reportIcon(pin.report, 36) : ''}${esc(pinTitle(pin))}</h3>
+  sheet(`<div data-pinsheet="${pin.id}"><h3 class="withicon">${pinIcon(pin.kind, pin.report, 36)}${esc(pinTitle(pin))}</h3>
     <p class="quiet">${when} · ${pin.lat.toFixed(5)}, ${pin.lon.toFixed(5)}</p>
     ${sharing}
     ${(pin.photos ?? []).map(ph => `<figure class="pinphoto"><img data-photo="${ph}" alt="Pin photo">
       <div class="btns"><button class="small" data-act2="savephoto" data-id="${ph}" data-t="${pin.t}">Save to Photos</button><button class="small" data-act2="unpinphoto" data-pin="${pin.id}" data-id="${ph}">Take off pin</button></div></figure>`).join('') || '<p class="quiet">No photos yet.</p>'}
-    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, `${inl(ICONS.camera)} Add photo`)}<button data-act2="movepin" data-id="${pin.id}">Move pin</button><button class="primary" data-close>Done</button></div></div>`);
+    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, `${inl(ICONS.camera)} Add photo`)}<button data-act2="pinnote" data-id="${pin.id}" data-back="1">${inl(ICONS.pencil)} ${pin.note ? 'Rename' : 'Add name'}</button><button data-act2="movepin" data-id="${pin.id}">${inl(ICONS.move)} Move pin</button></div>
+    <div class="btns"><button class="primary" data-close>Done</button></div></div>`);
   hydratePhotos($('#sheet-body'));
 }
 
@@ -1458,7 +1460,7 @@ $('#sheet').addEventListener('submit', e => {
   if ((e.target as HTMLElement).id === 'pinnoteform') {
     const f = e.target as HTMLFormElement, pin = state.pins.find(p => p.id === f.dataset.id);
     if (pin) { pin.note = String(new FormData(f).get('note') ?? '').trim() || undefined; pushPin(pin); store.savePins(state.pins); drawPins(); renderPane(); }
-    closeSheet();
+    if (pin && f.dataset.back) pinSheet(pin.id); else closeSheet();
   }
   if ((e.target as HTMLElement).id === 'trailform' && pendingCoords) {
     const f = new FormData(e.target as HTMLFormElement);
@@ -1499,7 +1501,7 @@ $('#sheet').addEventListener('click', e => {
   }
   if (b.dataset.act2 === 'movepin' && b.dataset.id) { const pin = state.pins.find(p => p.id === b.dataset.id); if (pin) startPlacing({ mode: 'move', pinId: pin.id }, [pin.lon, pin.lat]); return; }
   if (b.dataset.act2 === 'undopin' && b.dataset.id) { removePin(b.dataset.id); closeSheet(); toast('Report removed.'); return; }
-  if (b.dataset.act2 === 'pinnote' && b.dataset.id) { const pin = state.pins.find(p => p.id === b.dataset.id); if (pin) sheet(`<h3>Add a note</h3><form id="pinnoteform" data-id="${pin.id}" class="form"><label>Note<input name="note" maxlength="60" value="${esc(pin.note ?? '')}" placeholder="e.g. Big pine across the trail, go around left"></label><div class="btns"><button type="button" data-close>Cancel</button><button class="primary">Save</button></div></form>`); return; }
+  if (b.dataset.act2 === 'pinnote' && b.dataset.id) { const pin = state.pins.find(p => p.id === b.dataset.id); if (pin) sheet(`<h3 class="withicon">${pinIcon(pin.kind, pin.report, 36)}Name this pin</h3><form id="pinnoteform" data-id="${pin.id}" data-back="${b.dataset.back ?? ''}" class="form"><label>Name<input name="note" maxlength="60" value="${esc(pin.note ?? '')}" placeholder="${pin.kind === 'report' || pin.kind === 'hazard' ? 'e.g. Big pine across the trail, go left' : 'e.g. Lunch spot at the overlook'}"></label><p class="quiet">Shown instead of &ldquo;${esc(pin.kind === 'report' && pin.report ? REPORTS[pin.report as ReportType]?.label ?? 'Pin' : PIN_NAMES[pin.kind])}&rdquo;. Leave empty to use that.</p><div class="btns"><button type="button" data-close>Cancel</button><button class="primary">Save</button></div></form>`); return; }
   if (b.dataset.act2 === 'savefresh') { const files = pendingLibrary; pendingLibrary = []; closeSheet(); void libraryResult(files); return; }
   if (b.dataset.act2 === 'savephoto' && b.dataset.id) { const f = photoFile(b.dataset.id, Number(b.dataset.t) || Date.now()); if (f) void libraryResult([f]); else toast('Photo still loading. Try again.'); return; }
   if (b.dataset.act2 === 'unpinphoto' && b.dataset.pin && b.dataset.id) { unpinPhoto(b.dataset.pin, b.dataset.id); return; }

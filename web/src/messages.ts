@@ -28,6 +28,9 @@ export class GroupChat {
   private waiting: ChatMessage[] = read('traillink.chatOutbox', []);
   private lastRead: Record<string, string> = read('traillink.chatRead', {});
   log: LoggedGroup[] = read('traillink.chatLog', []);
+  /** When each rider last looked at each group's chat (for "Seen by"). */
+  private reads: Record<string, Record<string, string>> = read('traillink.chatReads', {});
+  private lastSeenSent = 0;
   private channel: RealtimeChannel | null = null;
   private channelGroup: string | null = null;
   private flushing = false;
@@ -60,7 +63,19 @@ export class GroupChat {
     const me = this.c.uid, since = this.lastRead[groupId] ?? '';
     return (this.threads[groupId] ?? []).filter(m => m.riderId !== me && (m.createdAt ?? m.sentAt) > since).length;
   }
+  /** Riders (other than the author and me) who have looked at the chat since this message arrived. */
+  seenBy(m: ChatMessage): string[] {
+    const r = this.reads[m.groupId] ?? {}, at = m.createdAt ?? m.sentAt;
+    return Object.entries(r).filter(([rid, t]) => rid !== m.riderId && rid !== this.c.uid && t >= at).map(([rid]) => rid);
+  }
+  /** Tell the group I've looked at the chat (at most every 15 s). */
+  private markSeen(groupId: string) {
+    if (!this.c.uid || !navigator.onLine || groupId !== this.c.group?.id || Date.now() - this.lastSeenSent < 15000) return;
+    this.lastSeenSent = Date.now();
+    void this.c.client.from('group_reads').upsert({ group_id: groupId, rider_id: this.c.uid, seen_at: new Date().toISOString() }, { onConflict: 'group_id,rider_id' });
+  }
   markRead(groupId: string) {
+    this.markSeen(groupId);
     const t = this.threads[groupId]; if (!t?.length) return;
     const latest = t[t.length - 1].createdAt ?? t[t.length - 1].sentAt;
     if (this.lastRead[groupId] === latest) return;
@@ -121,6 +136,8 @@ export class GroupChat {
     const { data, error } = await q;
     if (!error && data?.length && this.merge(groupId, (data as unknown as Row[]).map(this.fromRow))) this.onChange();
     await this.fillNames(groupId);
+    const reads = await this.c.client.from('group_reads').select('rider_id,seen_at').eq('group_id', groupId);
+    if (!reads.error && reads.data) { this.reads[groupId] = Object.fromEntries((reads.data as { rider_id: string; seen_at: string }[]).map(x => [x.rider_id, x.seen_at])); write('traillink.chatReads', this.reads); this.onChange(); }
     if (groupId === this.c.group?.id) this.listen(groupId);
     void this.flush();
   }
@@ -143,6 +160,11 @@ export class GroupChat {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_messages', filter: `group_id=eq.${groupId}` }, p => {
         const m = this.fromRow(p.new as Row);
         if (this.merge(groupId, [m])) { this.onChange(); if (m.riderId !== this.c.uid) this.onIncoming(m); if (m.by === 'Rider') void this.fillNames(groupId); }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'group_reads', filter: `group_id=eq.${groupId}` }, p => {
+        const r = p.new as { rider_id?: string; seen_at?: string };
+        if (!r?.rider_id || !r.seen_at) return;
+        (this.reads[groupId] ??= {})[r.rider_id] = r.seen_at; write('traillink.chatReads', this.reads); this.onChange();
       })
       .subscribe();
   }

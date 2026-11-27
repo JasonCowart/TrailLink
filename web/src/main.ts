@@ -24,6 +24,7 @@ const ICONS = {
   camera: ico('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
   x: ico('<path d="M6 6l12 12M18 6 6 18"/>'),
   reply: ico('<path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 6 6"/>'),
+  speaker: ico('<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>'),
   chat: ico('<path d="M4 5h16v11H9l-5 4z"/>'),
   send: ico('<path d="M4 12l16-8-6 16-2.5-6.5z"/><path d="M11.5 13.5L20 4"/>'),
   bell: ico('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>'),
@@ -555,8 +556,13 @@ const chat = new GroupChat(community);
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const isUrgent = (m: ChatMessage) => m.kind === 'help' || (m.kind === 'quick' && m.body === 'Need help');
 const snippet = (m: ChatMessage) => (m.kind === 'location' ? 'Location' : m.body.length > 50 ? `${m.body.slice(0, 47)}…` : m.body);
+/** My newest sent message carries the "Seen by" line. */
+let lastMineId: string | null = null;
+const riderName = (id: string) => (community.members.find(x => x.riderId === id)?.name ?? 'Rider').replace(/\s*\(test\)/, '');
 function msgHtml(m: ChatMessage): string {
   const mine = m.riderId === community.uid;
+  const seenNames = mine && m.id === lastMineId && !m.pending ? chat.seenBy(m).map(riderName) : null;
+  const seen = seenNames ? `<div class="msgseen">${seenNames.length ? `Seen by ${esc(seenNames.join(', '))}` : 'Delivered'}</div>` : '';
   const orig = m.replyTo ? chat.thread(m.groupId).find(x => x.id === m.replyTo) : undefined;
   const quote = m.replyTo ? `<button class="msgquote" data-jump="${m.replyTo}">${inl(ICONS.reply, 13)} ${orig ? `${orig.riderId === community.uid ? 'You' : esc(orig.by)}: ${esc(snippet(orig))}` : 'an earlier message'}</button>` : '';
   const when = m.pending ? 'waiting for signal' : timeOf(m.createdAt ?? m.sentAt);
@@ -564,9 +570,9 @@ function msgHtml(m: ChatMessage): string {
   const body = m.kind === 'help'
     ? `<span class="msgtext urgent">Need help${m.lat != null ? '' : ''}</span>${m.lat != null ? `<button class="msgloc" data-chatgo="${m.id}">${inl(ICONS.pin, 16)} ${state.pos ? `${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))}` : 'Where'}</button>` : ''}`
     : m.kind === 'location'
-    ? `<button class="msgloc" data-chatgo="${m.id}">${inl(ICONS.pin, 16)} ${mine ? 'My location' : 'Location'}${m.body ? `: ${esc(m.body)}` : ''}${state.pos && m.lat != null ? ` · ${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))}` : ''}</button>`
+    ? `<button class="msgloc" data-chatgo="${m.id}">${inl(ICONS.pin, 16)} ${m.body ? esc(m.body) : mine ? 'My location' : 'Location'}${state.pos && m.lat != null ? ` · ${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))}` : ''}</button>`
     : `<span class="msgtext${m.kind === 'quick' ? ' quick' : ''}${isUrgent(m) ? ' urgent' : ''}">${esc(m.body)}</span>`;
-  return `<div class="msg${mine ? ' mine' : ''}${m.pending ? ' pending' : ''}${replyTo === m.id ? ' replying' : ''}" data-msg="${m.id}"><div class="msgmeta">${mine ? 'You' : esc(m.by)} · ${when}</div>${quote}${body}</div>`;
+  return `<div class="msg${mine ? ' mine' : ''}${m.pending ? ' pending' : ''}${replyTo === m.id ? ' replying' : ''}" data-msg="${m.id}"><div class="msgmeta">${mine ? 'You' : esc(m.by)} · ${when}</div>${quote}${body}${seen}</div>`;
 }
 function chatHtml(groupId: string, readonly: boolean): string {
   const msgs = chat.thread(groupId);
@@ -602,10 +608,13 @@ chatPill.setAttribute('aria-label', 'Group chat');
 const drawer = Object.assign(document.createElement('section'), { id: 'chatdrawer', hidden: true });
 drawer.setAttribute('aria-label', 'Group chat');
 drawer.innerHTML = `<div class="cdhead"><b id="cdtitle"></b><span class="grow"></span>
+    <button class="ibtn" id="cdspeak" aria-label="Read messages aloud" title="Read messages aloud">${ICONS.speaker}</button>
     <button class="ibtn" id="cdbell" aria-label="Notifications for new messages" title="Notifications">${ICONS.bell}</button>
     <button class="ibtn" id="cdclose" aria-label="Close chat">${ICONS.chevDown}</button></div>
   <div class="chat" id="cdlist"></div>
   <div class="quickrow">${QUICK.map(q => `<button class="qchip${q === 'Need help' ? ' urgent' : ''}" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+  <div class="bigbtns">${['Stopping', 'Wait for me', 'Go ahead', 'All good'].map(q => `<button data-quick="${q}">${q}</button>`).join('')}<button class="urgent" data-quick="Need help">Need help</button>
+    <button class="fullchat" id="cdfull">Full chat</button></div>
   <div id="cdreply" hidden></div>
   <form id="chatform" class="chatform"><input name="msg" maxlength="500" autocomplete="off" enterkeyhint="send" placeholder="Message the group">
     <button type="button" class="ibtn" data-chatloc aria-label="Send my location" title="Send my location">${ICONS.pin}</button>
@@ -650,6 +659,9 @@ function renderMapChat() {
   if (!chatOpen) return;
   $('#cdtitle').textContent = g.name;
   $('#cdbell').classList.toggle('on', chat.pushOn); $('#cdbell').hidden = !chat.pushSupported;
+  $('#cdspeak').classList.toggle('on', readAloud);
+  drawer.classList.toggle('ridemode', rideMode && !fullChat);
+  lastMineId = [...msgs].reverse().find(m => m.riderId === community.uid && !m.pending && m.kind !== 'helpclear')?.id ?? null;
   const list = $('#cdlist'), atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
   list.innerHTML = msgs.length ? msgs.map(msgHtml).join('') : '<p class="quiet chatempty">No messages yet. Tap a quick message or type one. Tap any message to reply to it.</p>';
   if (atBottom || list.dataset.fresh !== '1') { list.scrollTop = list.scrollHeight; list.dataset.fresh = '1'; }
@@ -665,7 +677,12 @@ function setChatOpen(open: boolean) {
 }
 function freshPill() { chatPill.classList.remove('fresh'); void chatPill.offsetWidth; chatPill.classList.add('fresh'); }
 chatPill.addEventListener('click', () => setChatOpen(true));
-$('#cdclose').addEventListener('click', () => { setReply(null); setChatOpen(false); });
+$('#cdclose').addEventListener('click', () => { setReply(null); fullChat = false; setChatOpen(false); });
+$('#cdfull').addEventListener('click', () => { fullChat = true; renderMapChat(); });
+$('#cdspeak').addEventListener('click', () => {
+  readAloud = !readAloud; store.set('readAloud', readAloud); renderMapChat();
+  if (readAloud) speak('Reading messages aloud.'); else { speechSynthesis?.cancel(); toast('Messages won\'t be read aloud.'); }
+});
 $('#cdbell').addEventListener('click', () => {
   (chat.pushOn ? chat.disablePush().then(() => toast('Notifications off.')) : chat.enablePush().then(() => toast('Notifications on for new group messages.')))
     .catch((err: Error) => toast(err.message)).finally(renderMapChat);
@@ -723,6 +740,99 @@ helpBanner.addEventListener('click', e => {
   if (at) { state.follow = false; $('#btn-center').classList.remove('active'); map.flyTo({ center: [at.lon, at.lat], zoom: Math.max(map.getZoom(), 15) }); }
 });
 
+// ---- Read messages aloud (phone speaker or a Bluetooth helmet headset). iPhone only allows speech after a tap,
+// so the first tap anywhere in the app quietly unlocks it.
+let readAloud = store.get('readAloud', true);
+let speechReady = false;
+document.addEventListener('pointerdown', () => {
+  if (speechReady || !('speechSynthesis' in window)) return;
+  speechReady = true; const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u);
+}, { capture: true });
+function speak(text: string, urgent = false) {
+  if (!('speechSynthesis' in window) || !text) return;
+  if (urgent) speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text); u.rate = 1.02; u.lang = 'en-US';
+  speechSynthesis.speak(u);
+}
+function speakMessage(m: ChatMessage) {
+  if (!readAloud || document.visibilityState !== 'visible') return;
+  const who = m.by.replace(/\s*\(test\)/, '');
+  const at = m.lat != null && state.pos ? `, ${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} miles ${({ N: 'north', NE: 'northeast', E: 'east', SE: 'southeast', S: 'south', SW: 'southwest', W: 'west', NW: 'northwest' } as Record<string, string>)[compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))] ?? ''}` : '';
+  if (m.kind === 'help') speak(`Alert. ${who} needs help${at}.`, true);
+  else if (m.kind === 'helpclear') speak(`${who} is OK now.`);
+  else if (m.kind === 'location') speak(m.body ? `${who} marked a spot: ${m.body}${at}.` : `${who} shared a location${at}.`);
+  else speak(`${who}: ${m.body}`);
+}
+
+// ---- Ride mode: while moving, the chat drawer becomes a few big buttons and new messages show large for a few
+// seconds. The full chat comes back when you stop (or tap "Full chat").
+let rideMode = false, fullChat = false, slowSince = 0;
+function updateRideMode() {
+  const v = state.pos?.speed ?? 0;
+  if (v > 2.2) { slowSince = 0; if (!rideMode) { rideMode = true; fullChat = false; renderMapChat(); } }
+  else if (rideMode) {
+    if (!slowSince) slowSince = Date.now();
+    else if (Date.now() - slowSince > 20000) { rideMode = false; renderMapChat(); }
+  }
+}
+const headsUpEl = Object.assign(document.createElement('div'), { id: 'headsup', hidden: true });
+$('#mapwrap').append(headsUpEl);
+let headsUpTimer = 0;
+function headsUp(m: ChatMessage) {
+  const text = m.kind === 'location' ? (m.body ? `📍 ${m.body}` : 'Shared a location') : m.body;
+  headsUpEl.innerHTML = `<b>${esc(m.by.replace(/\s*\(test\)/, ''))}</b><span>${esc(text)}</span>`;
+  headsUpEl.hidden = false; headsUpEl.classList.remove('in'); void headsUpEl.offsetWidth; headsUpEl.classList.add('in');
+  clearTimeout(headsUpTimer); headsUpTimer = window.setTimeout(() => { headsUpEl.hidden = true; }, 7000);
+}
+headsUpEl.addEventListener('click', () => { headsUpEl.hidden = true; setChatOpen(true); });
+
+// ---- Message a spot: long-press the map (or right-click on a computer) → "Message here".
+let pressTimer = 0, pressAt: { x: number; y: number } | null = null;
+function spotSheet(lngLat: { lng: number; lat: number }) {
+  if (!community.group) { toast('Join a ride group to message a spot.'); return; }
+  pendingSpot = { lat: lngLat.lat, lon: lngLat.lng };
+  const far = state.pos ? ` · ${(distanceM(state.pos, pendingSpot) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, pendingSpot))} of you` : '';
+  sheet(`<h3 class="withicon">${inl(ICONS.pin, 26)} Message this spot</h3><p class="quiet">The group sees it in the chat and on the map${far}.</p>
+    <div class="quickrow wrap">${['Turn here', 'Meet here', 'Go around', 'Danger here', 'Camp here', 'Gas / water'].map(q => `<button class="qchip" data-spotquick="${q}">${q}</button>`).join('')}</div>
+    <form id="spotform" class="chatform"><input name="msg" maxlength="120" autocomplete="off" enterkeyhint="send" placeholder="e.g. Turn left at this fork"><button class="ibtn sendbtn" aria-label="Send">${ICONS.send}</button></form>`);
+}
+let pendingSpot: { lat: number; lon: number } | null = null;
+function sendSpot(text: string) {
+  if (!pendingSpot || !text.trim()) return;
+  try { chat.send('location', text, pendingSpot); toast('Sent to the group.'); } catch (err) { toast((err as Error).message); }
+  pendingSpot = null; closeSheet();
+}
+map.on('touchstart', e => {
+  clearTimeout(pressTimer);
+  if ((e.originalEvent as TouchEvent).touches.length !== 1) return;
+  pressAt = { x: e.point.x, y: e.point.y };
+  const ll = e.lngLat;
+  pressTimer = window.setTimeout(() => { navigator.vibrate?.(30); spotSheet(ll); }, 600);
+});
+map.on('touchmove', e => { if (pressAt && Math.hypot(e.point.x - pressAt.x, e.point.y - pressAt.y) > 10) clearTimeout(pressTimer); });
+for (const ev of ['touchend', 'touchcancel', 'dragstart', 'zoomstart', 'rotatestart'] as const) map.on(ev, () => clearTimeout(pressTimer));
+map.on('contextmenu', e => spotSheet(e.lngLat));
+document.addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLElement>('[data-spotquick]'); if (b) sendSpot(b.dataset.spotquick!); });
+document.addEventListener('submit', e => {
+  const f = e.target as HTMLFormElement; if (f.id !== 'spotform') return;
+  e.preventDefault(); sendSpot(f.querySelector<HTMLInputElement>('input')!.value);
+}, true);
+/** Spots the group marked (last 12 hours) stay on the map as small labels. */
+const spotMarkers = new Map<string, maplibregl.Marker>();
+function drawSpots() {
+  const g = community.signedIn ? community.group : null;
+  const spots = g ? chat.thread(g.id).filter(m => m.kind === 'location' && m.body && m.lat != null && Date.now() - Date.parse(m.createdAt ?? m.sentAt) < 12 * 3600e3) : [];
+  const keep = new Set(spots.map(m => m.id));
+  for (const [id, mk] of spotMarkers) if (!keep.has(id)) { mk.remove(); spotMarkers.delete(id); }
+  for (const m of spots) {
+    if (spotMarkers.has(m.id)) continue;
+    const el = document.createElement('button'); el.className = 'spotmark';
+    el.innerHTML = `${inl(ICONS.chat, 13)}<span>${esc(m.body.length > 26 ? `${m.body.slice(0, 24)}…` : m.body)}</span><i>${esc((m.riderId === community.uid ? 'You' : m.by).replace(/\s*\(test\)/, ''))}</i>`;
+    el.addEventListener('click', ev => { ev.stopPropagation(); setChatOpen(true); });
+    spotMarkers.set(m.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([m.lon!, m.lat]).addTo(map));
+  }
+}
+
 /** A speech bubble over the sender's dot on the map for a few seconds. */
 function riderBubble(m: ChatMessage) {
   const pos = m.kind === 'location' && m.lat != null ? { lat: m.lat, lon: m.lon! } : community.members.find(x => x.riderId === m.riderId)?.pos;
@@ -734,16 +844,18 @@ function riderBubble(m: ChatMessage) {
   setTimeout(() => { el.classList.add('out'); setTimeout(() => mk.remove(), 600); }, 12000);
 }
 chat.onChange = () => {
-  updateUnread(); renderMapChat(); drawHelp(); drawHeading();
+  updateUnread(); renderMapChat(); drawHelp(); drawHeading(); drawSpots();
   if (typingIn('#pane') || typingIn('#sheet')) { afterChat(); return; }
   if (state.tab === 'group' && !state.detail) renderPane();
   if (state.panel === 'riders') refreshPanel();
   afterChat();
 };
 chat.onIncoming = m => {
+  speakMessage(m);
   if (m.kind === 'help') { navigator.vibrate?.([300, 120, 300, 120, 600]); toast(`${m.by} needs help!`); drawHelp(); return; }
   if (m.kind === 'helpclear') { toast(`${m.by} is OK now.`); return; }
   riderBubble(m); freshPill();
+  if (rideMode) headsUp(m);
 };
 const chatMarker = new maplibregl.Marker({ element: Object.assign(document.createElement('div'), { className: 'tapmark' }) });
 document.addEventListener('click', e => {
@@ -1165,7 +1277,7 @@ function onPosition(p: GeolocationPosition) {
   state.pos = { lat: c.latitude, lon: c.longitude, acc: Math.round(c.accuracy), alt: c.altitude ?? undefined, speed: c.speed ?? undefined, heading: c.heading ?? undefined, t: p.timestamp };
   meMarker.setLngLat([c.longitude, c.latitude]);
   if (!meMarker.getElement().isConnected) meMarker.addTo(map);
-  drawHeading();
+  drawHeading(); updateRideMode();
   if (state.follow) map.easeTo({ center: [c.longitude, c.latitude], zoom: Math.max(map.getZoom(), 13), duration: 600 });
   if (state.recording) {
     const pt: Pt = { lat: c.latitude, lon: c.longitude, t: p.timestamp, alt: c.altitude ?? undefined };

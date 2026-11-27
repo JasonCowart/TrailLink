@@ -529,3 +529,47 @@ html[data-theme="dark"] button.msgloc { background: rgba(14,165,233,.18); }
 /* Fixes (owner, 2026-11-27): "Need help" stays red in every theme; pop-up messages readable in dark mode */
 html .msg .msgtext.urgent, html .msg.mine .msgtext.urgent, html[data-theme="dark"] .msg.mine .msgtext.urgent { background: #EF4444; color: #fff; }
 html[data-theme="dark"] #toast { background: #2A312C; color: #F1F5F0; border: 1px solid #3D4640; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+
+/* ===== Chat that floats on the map (owner, 2026-11-27): no panel behind it, the map shows through ===== */
+#chatdrawer { background: none; box-shadow: none; padding: 4px 6px 6px; pointer-events: none; }
+#chatdrawer > * { pointer-events: auto; }
+#chatdrawer .cdhead { pointer-events: none; }
+#chatdrawer .cdhead > * { pointer-events: auto; }
+#chatdrawer .cdhead b { display: inline-block; padding: 4px 10px; border-radius: 99px; background: rgba(20,26,22,.55); color: #fff; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+#chatdrawer .cdhead .ibtn { background: rgba(255,253,248,.88); box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+#chatdrawer .cdhead .ibtn.on { background: var(--pine); color: #fff; }
+#chatdrawer .chat { -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 28px); mask-image: linear-gradient(180deg, transparent 0, #000 28px); padding-top: 24px; }
+#chatdrawer .msgmeta, #chatdrawer .msgseen, #chatdrawer .chatempty { color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.6); }
+#chatdrawer .msgtext { box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+#chatdrawer .msg:not(.mine) .msgtext:not(.urgent) { background: rgba(255,253,248,.94); color: #1D221D; }
+#chatdrawer .qchip { background: rgba(255,253,248,.92); box-shadow: 0 1px 4px rgba(0,0,0,.3); border-color: transparent; color: #1D221D; }
+#chatdrawer .qchip.urgent { background: #EF4444; color: #fff; }
+#chatdrawer .chatform input { background: rgba(255,253,248,.95); box-shadow: 0 1px 4px rgba(0,0,0,.3); color: #1D221D; }
+#chatdrawer .chatform .ibtn:not(.sendbtn) { background: rgba(255,253,248,.92); box-shadow: 0 1px 4px rgba(0,0,0,.3); color: #1D221D; }
+#chatdrawer #cdreply { background: rgba(255,253,248,.92); color: #1D221D; }
+html[data-theme="dark"] #chatdrawer { background: none; }
+html[data-theme="dark"] #chatdrawer .msg:not(.mine) .msgtext:not(.urgent), html[data-theme="dark"] #chatdrawer .qchip:not(.urgent),
+html[data-theme="dark"] #chatdrawer .chatform input, html[data-theme="dark"] #chatdrawer .chatform .ibtn:not(.sendbtn),
+html[data-theme="dark"] #chatdrawer .cdhead .ibtn:not(.on), html[data-theme="dark"] #chatdrawer #cdreply { background: rgba(32,38,34,.94); color: #E9EEE8; }
+.msgseen { font-size: 11px; margin: 2px 4px 0; color: var(--quiet); }
+/* Ride mode: big buttons only */
+#chatdrawer .bigbtns { display: none; }
+#chatdrawer.ridemode .chat, #chatdrawer.ridemode .quickrow, #chatdrawer.ridemode .chatform, #chatdrawer.ridemode #cdreply { display: none; }
+#chatdrawer.ridemode .bigbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; }
+#chatdrawer .bigbtns button { min-height: 58px; font-size: 18px; font-weight: 800; border: 0; border-radius: 16px; background: rgba(255,253,248,.95); color: #1D221D; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+#chatdrawer .bigbtns button.urgent { background: #EF4444; color: #fff; }
+#chatdrawer .bigbtns button.fullchat { min-height: 58px; font-size: 14px; font-weight: 700; background: rgba(20,26,22,.6); color: #fff; }
+html[data-theme="dark"] #chatdrawer .bigbtns button:not(.urgent):not(.fullchat) { background: rgba(32,38,34,.95); color: #E9EEE8; }
+/* Heads-up card for new messages while moving */
+#headsup { position: absolute; z-index: 4; top: calc(var(--map-top) + 40px); left: 12px; right: 78px; padding: 12px 14px; border-radius: 16px; background: rgba(20,26,22,.88); color: #fff;
+  box-shadow: 0 4px 16px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 2px; cursor: pointer; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+#headsup[hidden] { display: none; }
+#headsup b { font-size: 14px; color: #9FD8BA; }
+#headsup span { font-size: 22px; font-weight: 700; line-height: 1.2; }
+#headsup.in { animation: bubblein .25s ease-out; }
+/* Spots the group messaged on the map */
+button.spotmark { display: flex; align-items: center; gap: 5px; max-width: 200px; min-height: 0; padding: 5px 9px; border: 0; border-radius: 12px 12px 12px 3px; background: #0EA5E9; color: #fff;
+  font: 700 12px/1.2 system-ui, sans-serif; box-shadow: 0 2px 6px rgba(0,0,0,.35); cursor: pointer; }
+button.spotmark span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button.spotmark i { font-style: normal; font-weight: 500; opacity: .85; font-size: 11px; }
+.quickrow.wrap { flex-wrap: wrap; overflow: visible; }

@@ -1074,7 +1074,7 @@ async function computeRoute(from: LL, to: LL): Promise<Route> {
   await new Promise<void>(r => { const t = setTimeout(r, 5000); map.once('idle', () => { clearTimeout(t); r(); }); });
   const tracks = [state.recording, ...state.tracks].filter(Boolean).map(t => t!.points as LL[]);
   // Full-detail trail tiles (saved ones work offline); if none load, use what's drawn on the map.
-  let lines = await loadTrailLines(new URL(TRAIL_TILES, location.href).href, from, to);
+  let lines = await loadTrailLines(TRAIL_TILES, from, to);
   if (!lines.length) lines = trailLines();
   const viaTrails = trailRoute(buildGraph(lines), from, to);
   const viaTrack = trackRoute(tracks, from, to);

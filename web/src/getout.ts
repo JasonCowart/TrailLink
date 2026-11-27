@@ -68,7 +68,8 @@ export async function loadTrailLines(tileUrl: string, a: LL, b: LL, margin = 0.0
   if ((x1 - x0 + 1) * (y1 - y0 + 1) > 144) return []; // too far for this (over ~100 km): use the recorded track or straight line
   const jobs: Promise<number[][][]>[] = [];
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
-    jobs.push(fetch(tileUrl.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y))).then(async r => {
+    const url = decodeURI(tileUrl).replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
+    jobs.push(fetch(url).then(async r => {
       if (!r.ok) return [];
       const t = new VectorTile(new Pbf(new Uint8Array(await r.arrayBuffer())));
       const layer = t.layers.trails; if (!layer) return [];

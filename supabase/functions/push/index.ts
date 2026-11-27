@@ -8,7 +8,10 @@ const PUBLIC = Deno.env.get('VAPID_PUBLIC_KEY') ?? '';
 const PRIVATE = Deno.env.get('VAPID_PRIVATE_KEY') ?? '';
 const SECRET = Deno.env.get('PUSH_HOOK_SECRET') ?? '';
 webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') ?? 'https://jasoncowart.github.io/TrailLink/', PUBLIC, PRIVATE);
-const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
+// The project's secret key (new-style keys first; the legacy service-role key as a fallback).
+const SECRET_KEY = (() => { try { const k = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') ?? '{}'); return (k.default ?? Object.values(k)[0]) as string | undefined; } catch { return undefined; } })()
+  ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const db = createClient(Deno.env.get('SUPABASE_URL')!, SECRET_KEY, { auth: { persistSession: false } });
 const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, apikey, authorization', 'access-control-allow-methods': 'GET, POST, OPTIONS' };
 
 Deno.serve(async req => {

@@ -177,7 +177,8 @@ export function miniProfileSvg(pr: Profile, at: number | null): string {
   const y = (e: number) => MH - 3 - ((e - lo) / (hi - lo)) * (MH - 8);
   const idx = sample(pr, 150), id = `pm${++uid}`;
   const line = idx.map(i => `${x(pr.d[i]).toFixed(1)},${y(pr.e[i]).toFixed(1)}`).join(' ');
-  const dot = at == null ? '' : `<line x1="${x(pr.d[at]).toFixed(1)}" x2="${x(pr.d[at]).toFixed(1)}" y1="0" y2="${MH}" class="el-cur"/><circle cx="${x(pr.d[at]).toFixed(1)}" cy="${y(pr.e[at]).toFixed(1)}" r="4.5" class="el-dot"/>`;
+  // The dot is drawn in HTML over the chart (the chart stretches to any width, which would squash a circle).
+  const dot = at == null ? '' : `<line x1="${x(pr.d[at]).toFixed(1)}" x2="${x(pr.d[at]).toFixed(1)}" y1="0" y2="${MH}" class="el-cur"/>`;
   return `<svg class="el-svg" viewBox="0 0 ${MW} ${MH}" preserveAspectRatio="none" aria-hidden="true"><defs>
     <linearGradient id="${id}c" gradientUnits="userSpaceOnUse" x1="0" x2="${MW}" y1="0" y2="0">${gradeStops(pr, idx)}</linearGradient>
     <linearGradient id="${id}f" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".6"/><stop offset="1" stop-color="#fff" stop-opacity=".03"/></linearGradient>
@@ -185,4 +186,10 @@ export function miniProfileSvg(pr: Profile, at: number | null): string {
     <line x1="0" x2="${MW}" y1="${MH / 2}" y2="${MH / 2}" class="el-grid"/>
     <polygon points="0,${MH} ${line} ${MW},${MH}" fill="url(#${id}c)" mask="url(#${id}m)"/>
     <polyline points="${line}" fill="none" stroke="url(#${id}c)" stroke-width="2.2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>${dot}</svg>`;
+}
+
+/** Where the strip's dot sits for point i, as percentages of the chart box. */
+export function miniXY(pr: Profile, i: number): { x: number; y: number } {
+  const lo = pr.low, hi = Math.max(pr.high, pr.low + 6);
+  return { x: (pr.d[i] / Math.max(1, pr.total)) * 100, y: ((MH - 3 - ((pr.e[i] - lo) / (hi - lo)) * (MH - 8)) / MH) * 100 };
 }

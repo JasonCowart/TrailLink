@@ -19,7 +19,7 @@ import qrcode from 'qrcode-generator';
 import { Breadcrumbs } from './groupline.ts';
 import jsQR from 'jsqr';
 import { PIN_ICONS, REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
-import { FT, GRADES, MI, buildProfile, distAtX, indexAt, indexNear, miniProfileSvg, profileSvg, scrubXY, W as PROFILE_W, type Profile, type ProfileMark } from './profile.ts';
+import { FT, GRADES, MI, buildProfile, distAtX, indexAt, indexNear, miniProfileSvg, miniXY, profileSvg, scrubXY, W as PROFILE_W, type Profile, type ProfileMark } from './profile.ts';
 // Small line icons for compact buttons.
 const ico = (d: string) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const ICONS = {
@@ -2723,7 +2723,8 @@ function drawElevLine() {
   if (at == null && state.pos) { const i = indexNear(pr, state.pos.lat, state.pos.lon); if (distanceM(state.pos, { lat: pr.lat[i], lon: pr.lon[i] }) < 60) at = i; }
   const info = at == null ? `${(pr.total / MI).toFixed(1)} mi · ▲${Math.round(pr.climb * FT).toLocaleString()} ft`
     : `${fmtFt(pr.e[at])} <span class="el-g" style="--c:${GRADES.find(g => Math.abs(pr.g[at!]) < g.max)!.color}">${pr.g[at] > 0.5 ? '▲' : pr.g[at] < -0.5 ? '▼' : ''}${Math.abs(Math.round(pr.g[at]))}%</span> · ${(pr.d[at] / MI).toFixed(2)} mi`;
-  elevEl.innerHTML = `${miniProfileSvg(pr, at)}<div class="el-text"><b data-elopen title="${esc(t.name)}">${live ? '● Rec' : new Date(t.startedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</b><span data-elopen>${info}</span>${live ? '' : `<button class="el-x" data-elclose aria-label="Hide this ride's elevation">${ICONS.x}</button>`}</div>`;
+  const dotXY = at == null ? null : miniXY(pr, at);
+  elevEl.innerHTML = `<div class="el-chart">${miniProfileSvg(pr, at)}${dotXY ? `<i class="el-dot" style="left:${dotXY.x.toFixed(2)}%;top:${dotXY.y.toFixed(2)}%"></i>` : ''}</div><div class="el-text"><b data-elopen title="${esc(t.name)}">${live ? '● Rec' : new Date(t.startedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</b><span data-elopen>${info}</span>${live ? '' : `<button class="el-x" data-elclose aria-label="Hide this ride's elevation">${ICONS.x}</button>`}</div>`;
   elevEl.hidden = false;
 }
 function elevFrom(e: PointerEvent) {
@@ -2734,7 +2735,7 @@ function elevFrom(e: PointerEvent) {
   drawElevLine();
 }
 elevEl.addEventListener('pointerdown', e => {
-  if (!(e.target as Element).closest('.el-svg')) return;
+  if (!(e.target as Element).closest('.el-chart')) return;
   elevDrag = true; elevEl.setPointerCapture(e.pointerId); state.follow = false; $('#btn-center').classList.remove('active'); elevFrom(e);
 });
 elevEl.addEventListener('pointermove', e => { if (elevDrag) elevFrom(e); });

@@ -115,9 +115,10 @@ function addOverlays() {
   // A past ride picked in the Ride tab (shown while the Ride tab is open).
   if (!map.getSource('viewride')) map.addSource('viewride', { type: 'geojson', data: viewRideGeo() });
   if (!map.getLayer('viewride-casing')) map.addLayer({ id: 'viewride-casing', type: 'line', source: 'viewride', paint: { 'line-color': '#fff', 'line-width': 7, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-  if (!map.getLayer('viewride-line')) map.addLayer({ id: 'viewride-line', type: 'line', source: 'viewride', paint: { 'line-color': '#E8501A', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  if (!map.getLayer('viewride-line')) map.addLayer({ id: 'viewride-line', type: 'line', source: 'viewride', paint: { 'line-color': '#0EA5E9', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
   if (!map.getSource('track')) map.addSource('track', { type: 'geojson', data: trackGeo() });
-  if (!map.getLayer('track')) map.addLayer({ id: 'track', type: 'line', source: 'track', paint: { 'line-color': '#E8501A', 'line-width': 4, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  if (!map.getLayer('track-casing')) map.addLayer({ id: 'track-casing', type: 'line', source: 'track', paint: { 'line-color': '#fff', 'line-width': 7, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  if (!map.getLayer('track')) map.addLayer({ id: 'track', type: 'line', source: 'track', paint: { 'line-color': '#0EA5E9', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
   // Group riders who are sharing their location.
   if (!map.getSource('riders')) map.addSource('riders', { type: 'geojson', data: ridersGeo() });
   if (!map.getLayer('riders-dot')) map.addLayer({ id: 'riders-dot', type: 'circle', source: 'riders', paint: {
@@ -324,7 +325,7 @@ function legendPanelHtml(): string {
         ${sw('<span class="mk harder">▲</span>', 'Harder for your rig')}
         ${sw('<span class="mk easier">▼</span>', 'Easier for your rig')}
         ${sw('<span class="lgdot">12</span>', 'Zoomed out: number of trails nearby (tap to zoom in)')}
-        ${sw(line('#E8501A'), 'Your recorded ride')}
+        ${sw(line('#0EA5E9'), 'Your recorded ride (and the ride in the elevation chart)')}
         ${sw('<span class="lgdot rider">JC</span>', 'Group rider sharing location (faded: not seen for 10+ min)')}
       </div>
       <div class="btns"><button data-panel="layers">Change trail colors</button><button class="primary" data-close>Done</button></div>`;

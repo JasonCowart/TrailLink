@@ -23,7 +23,17 @@ export function buildGraph(lines: number[][][]): Graph {
     if (id == null) { id = nodes.length; ids.set(k, id); nodes.push(p); adj.push([]); }
     return id;
   };
-  for (const line of lines) {
+  for (const raw of lines) {
+    // Add a point every ~20 m: the map data is simplified, so a side trail often meets a main trail between its points.
+    const line: number[][] = [];
+    for (let i = 0; i < raw.length; i++) {
+      if (i > 0) {
+        const [x0, y0] = raw[i - 1], [x1, y1] = raw[i];
+        const steps = Math.floor(distanceM({ lon: x0, lat: y0 }, { lon: x1, lat: y1 }) / 20);
+        for (let k = 1; k < steps; k++) line.push([x0 + ((x1 - x0) * k) / steps, y0 + ((y1 - y0) * k) / steps]);
+      }
+      line.push(raw[i]);
+    }
     let prev = -1;
     for (const c of line) {
       const id = node(c);

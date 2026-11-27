@@ -1055,6 +1055,8 @@ let goRoute: Route | null = null, goDest: Dest | null = null, goIdx = 0, goRerou
 const goFlag = new maplibregl.Marker({ element: Object.assign(document.createElement('div'), { className: 'goflag', innerHTML: ICONS.flag }), anchor: 'bottom-left' });
 const guideEl = Object.assign(document.createElement('div'), { id: 'guide', hidden: true });
 $('#mapwrap').append(guideEl);
+// The guidance bar lives on the map (outside the panel), so it handles its own Stop button.
+guideEl.addEventListener('click', e => { if ((e.target as HTMLElement).closest('[data-act="getoutstop"]')) { e.stopPropagation(); stopGetOut(); toast('Route stopped.'); renderPane(); } });
 /** Trail lines currently on the phone (saved/loaded map tiles), as [lon, lat] arrays. Closed trails are left out. */
 function trailLines(): number[][][] {
   const out: number[][][] = [];

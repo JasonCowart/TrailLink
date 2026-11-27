@@ -41,7 +41,7 @@ async function makeUser(tag, name) {
   if (!res.ok) throw new Error(`test sign-in failed: HTTP ${res.status}`);
   return { uid: id, token: j.access_token };
 }
-const rest = (u, path, body) => fetch(`${URL}/rest/v1/${path}`, { method: body ? 'POST' : 'GET', headers: { apikey: KEY, Authorization: `Bearer ${u.token}`, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).then(r => r.json());
+const rest = (u, path, body) => fetch(`${URL}/rest/v1/${path}`, { method: body ? 'POST' : 'GET', headers: { apikey: KEY, Authorization: `Bearer ${u.token}`, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).then(async r => { const t = await r.text(); return t ? JSON.parse(t) : null; });
 
 const dir = mkdtempSync(join(tmpdir(), 'tlm-'));
 const env = u => ({ ...process.env, TL_URL: URL, TL_KEY: KEY, TL_TOKEN: u.token, TL_UID: u.uid });

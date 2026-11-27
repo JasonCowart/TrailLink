@@ -111,8 +111,20 @@ export class GroupChat {
     if (since) q = q.gt('created_at', since);
     const { data, error } = await q;
     if (!error && data?.length && this.merge(groupId, (data as unknown as Row[]).map(this.fromRow))) this.onChange();
+    await this.fillNames(groupId);
     if (groupId === this.c.group?.id) this.listen(groupId);
     void this.flush();
+  }
+  /** Messages that arrived live carry no name: look up any riders shown as "Rider". */
+  private async fillNames(groupId: string) {
+    const t = this.threads[groupId] ?? [];
+    const ids = [...new Set(t.filter(m => m.by === 'Rider' && m.riderId !== this.c.uid).map(m => m.riderId))];
+    if (!ids.length) return;
+    const { data } = await this.c.client.from('profiles').select('id,display_name').in('id', ids);
+    if (!data?.length) return;
+    const names = new Map((data as { id: string; display_name: string }[]).map(p => [p.id, p.display_name]));
+    for (const m of t) if (m.by === 'Rider' && names.has(m.riderId)) m.by = names.get(m.riderId)!;
+    this.save(); this.onChange();
   }
   private listen(groupId: string) {
     if (this.channelGroup === groupId && this.channel) return;
@@ -121,7 +133,7 @@ export class GroupChat {
     this.channel = this.c.client.channel(`chat-${groupId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_messages', filter: `group_id=eq.${groupId}` }, p => {
         const m = this.fromRow(p.new as Row);
-        if (this.merge(groupId, [m])) { this.onChange(); if (m.riderId !== this.c.uid) this.onIncoming(m); }
+        if (this.merge(groupId, [m])) { this.onChange(); if (m.riderId !== this.c.uid) this.onIncoming(m); if (m.by === 'Rider') void this.fillNames(groupId); }
       })
       .subscribe();
   }

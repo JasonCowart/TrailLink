@@ -545,7 +545,7 @@ function drawGroupLine() {
     return `<span class="gl-dot${me ? ' me' : ''}${late ? ' late' : ''}" style="left:${x.toFixed(1)}%" title="${esc(name(p.riderId))}">${me ? '' : esc(initials(name(p.riderId)))}</span>`;
   }).join('');
   const tail = hi - last.along;
-  lineEl.innerHTML = `<div class="gl-track">${dots}</div><div class="gl-text">${behind.length ? `<b class="late">${esc(behind.map(p => name(p.riderId)).join(', '))} ${(gap / 1609.344).toFixed(1)} mi behind</b>` : `Group spread ${fmtDistShort(tail)}`}<span>Leader: ${esc(name(sorted[sorted.length - 1].riderId))}</span></div>`;
+  lineEl.innerHTML = `<div class="gl-track">${dots}</div><div class="gl-text">${behind.length ? `<b class="late">${esc(behind.map(p => name(p.riderId)).join(', '))} ${(gap / 1609.344).toFixed(1)} mi behind</b>` : `Group spread ${fmtDistShort(tail)}`}${behind.length ? '' : `<span>Leader: ${esc(name(sorted[sorted.length - 1].riderId))}</span>`}</div>`;
   lineEl.hidden = false;
   if (behind.length && Date.now() - behindSpokenAt > 10 * 60e3) {
     behindSpokenAt = Date.now();

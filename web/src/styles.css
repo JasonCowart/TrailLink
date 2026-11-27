@@ -9,7 +9,7 @@
   color-scheme: light;
 }
 * { box-sizing: border-box; min-width: 0; }
-html, body { height: 100%; margin: 0; background: var(--paper); color: var(--ink); overflow: hidden; -webkit-text-size-adjust: 100%; }
+html, body { height: var(--app-h, 100%); margin: 0; background: var(--paper); color: var(--ink); overflow: hidden; -webkit-text-size-adjust: 100%; }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; min-height: 48px; border-radius: 14px; border: 1px solid var(--line); background: var(--paper); padding: 0 16px; font-weight: 700; touch-action: manipulation; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
@@ -75,7 +75,7 @@ label.tg input { width: 24px; height: 24px; accent-color: var(--action); flex: n
 .card { background: var(--sand); border-radius: 14px; padding: 12px 14px; margin: 8px 0; }
 .coords { font: 700 22px/1.2 'Barlow Condensed', sans-serif; user-select: all; }
 
-.overlay { position: fixed; inset: 0; z-index: 10; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: var(--map-top) 16px calc(12px + var(--safe-bottom)); }
+.overlay { position: fixed; inset: 0; bottom: auto; height: var(--app-h, 100%); z-index: 10; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: var(--map-top) 16px calc(12px + var(--safe-bottom)); }
 .overlay[hidden] { display: none; }
 .dialog { background: var(--paper); border-radius: 18px; padding: 20px; width: 100%; max-width: 440px; max-height: 100%; overflow: auto; overscroll-behavior: contain; }
 .dialog.sos { background: #A51818; color: #fff; }

@@ -1236,6 +1236,22 @@ function setPanel(open: boolean) {
   requestAnimationFrame(() => map.resize());
 }
 $('#app').classList.toggle('collapsed', !store.get('panelOpen', false));
+// iPhone Home Screen app (iOS 26): the page is laid out shorter than the screen, leaving an empty strip under the tabs.
+// When the app runs full screen, size it to the screen itself.
+function fitScreen() {
+  const standalone = (navigator as Navigator & { standalone?: boolean }).standalone || matchMedia('(display-mode: standalone)').matches;
+  const portrait = innerHeight >= innerWidth;
+  const sw = portrait ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
+  const sh = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+  const full = standalone && Math.abs(innerWidth - sw) <= 2 && sh > innerHeight && sh - innerHeight < 120; // not split view
+  const want = full ? `${sh}px` : '';
+  if (document.documentElement.style.getPropertyValue('--app-h') === want) return;
+  if (want) document.documentElement.style.setProperty('--app-h', want); else document.documentElement.style.removeProperty('--app-h');
+  requestAnimationFrame(() => map.resize());
+}
+fitScreen();
+addEventListener('resize', fitScreen);
+addEventListener('orientationchange', () => setTimeout(fitScreen, 300));
 // iPhone Home Screen app bug: after the keyboard closes, iOS can leave the app shorter than the screen (a dead band
 // at the bottom) until the app is restarted. Hiding and re-showing the app makes iOS measure the screen again.
 const tallest = new Map<number, number>(); // per screen width, so turning the phone doesn't count as shrinking

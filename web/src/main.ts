@@ -552,7 +552,7 @@ function groupHtml(compact: boolean): string {
     <label class="tg"><span><b>Share my location</b><br><span class="quiet">${community.sharing ? 'The group can see where you are.' : 'Off: the group can\'t see you.'}</span></span>
       <input type="checkbox" data-set="sharing" ${community.sharing ? 'checked' : ''} ${state.groupBusy ? 'disabled' : ''}></label>
     ${err}
-    ${compact ? '' : `<div class="btns"><button data-openchat>${inl(ICONS.chat)} Group chat${chat.unread(g.id) ? ` (${chat.unread(g.id)} new)` : ''}</button></div>
+    ${compact ? '' : `<div class="btns"><button data-openchat>${inl(ICONS.chat)} Group chat</button></div>
     ${chat.pushSupported ? `<label class="tg small"><span>${inl(ICONS.bell, 16)} Notify me of new messages</span><input type="checkbox" data-set="pushOn" ${chat.pushOn ? 'checked' : ''}></label>` : ''}`}
     <p class="quiet" style="margin:12px 0 4px"><b>Riders (${members.length})</b> · ${sharingCount} sharing${community.groupUpdated ? ` · updated ${ago(community.groupUpdated)}` : ''}${navigator.onLine ? '' : ' · no signal'}</p>
     ${members.map(memberRow).join('') || '<p class="quiet">Loading…</p>'}
@@ -608,9 +608,9 @@ function afterChat() {
     if (el.offsetParent) chat.markRead(el.dataset.chat!);
   }
 }
+/** Unread messages are shown only on the chat bar on the map (owner: the Riders button and Group tab don't open the chat). */
 function updateUnread() {
-  const n = chat.unread(community.group?.id);
-  for (const el of [document.querySelector('#tabs button[data-tab="group"]'), $('#btn-riders')]) if (el) { if (n) el.setAttribute('data-unread', n > 9 ? '9+' : String(n)); else el.removeAttribute('data-unread'); }
+  for (const el of [document.querySelector('#tabs button[data-tab="group"]'), $('#btn-riders')]) el?.removeAttribute('data-unread');
 }
 // ---- Chat on the map: a slim pill between SOS and Report shows the latest message; tap it for a short drawer
 // over the bottom of the map (the map stays visible and usable above it). New messages also pop up as a speech

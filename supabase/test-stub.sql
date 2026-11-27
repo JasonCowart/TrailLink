@@ -13,3 +13,10 @@ alter table auth.users add column if not exists last_sign_in_at timestamptz;
 do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'supabase_auth_admin') then create role supabase_auth_admin nologin; end if;
 end $$;
+-- More auth.users columns (used by 014-test-riders.sql).
+alter table auth.users add column if not exists instance_id uuid;
+alter table auth.users add column if not exists aud text;
+alter table auth.users add column if not exists role text;
+alter table auth.users add column if not exists raw_app_meta_data jsonb;
+alter table auth.users add column if not exists raw_user_meta_data jsonb;
+alter table auth.users add column if not exists updated_at timestamptz;

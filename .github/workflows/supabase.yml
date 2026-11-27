@@ -38,6 +38,7 @@ jobs:
           node scripts/supabase-admin.mjs sql supabase/011-rider-backup.sql
           node scripts/supabase-admin.mjs sql supabase/012-group-messages.sql
           node scripts/supabase-admin.mjs sql supabase/013-message-replies.sql
+          node scripts/supabase-admin.mjs sql supabase/014-test-riders.sql
       - name: Sign-in settings
         if: inputs.action == 'setup'
         run: node scripts/supabase-admin.mjs auth
@@ -58,6 +59,7 @@ jobs:
           npm install --no-save --silent web-push
           node scripts/supabase-admin.mjs push-setup
           npx --yes supabase@latest functions deploy push --remote=yxcyqbxzggpejldkmdqe --no-verify-jwt --use-api --yes
+          npx --yes supabase@latest functions deploy demo --remote=yxcyqbxzggpejldkmdqe --use-api --yes
           curl -s https://yxcyqbxzggpejldkmdqe.supabase.co/functions/v1/push | head -c 60; echo
       - name: Live messaging test
         if: inputs.action == 'test-messages'

@@ -492,6 +492,7 @@ function groupHtml(compact: boolean): string {
     <p class="quiet" style="margin:12px 0 4px"><b>Riders (${members.length})</b> · ${sharingCount} sharing${community.groupUpdated ? ` · updated ${ago(community.groupUpdated)}` : ''}${navigator.onLine ? '' : ' · no signal'}</p>
     ${members.map(memberRow).join('') || '<p class="quiet">Loading…</p>'}
     <div class="btns">${compact ? '' : '<button data-act="grouprefresh">Refresh</button>'}<button class="danger" data-act="groupleave">Leave group</button></div>
+    ${compact ? '' : testRidersHtml()}
     ${compact ? '' : rideLogHtml()}`;
 }
 
@@ -664,6 +665,36 @@ document.addEventListener('change', e => {
   (t.checked ? chat.enablePush().then(() => toast('Notifications on for new group messages.')) : chat.disablePush().then(() => toast('Notifications off.')))
     .catch((err: Error) => { t.checked = false; toast(err.message); });
 });
+
+// ---------------------------------------------------------------- test riders (admin): try the group features alone
+let testRiders = store.get('testRiders', false), testBusy = false;
+function testRidersHtml(): string {
+  if (!community.isAdmin) return '';
+  return `<details class="about"${testRiders ? ' open' : ''}><summary>${inl(ICONS.info, 16)} Test riders (admin)</summary>
+    <p class="quiet">Three pretend riders (Kim, Dean and Maria, marked "test") join this group, ride slow loops around you, chat now and then, and answer your messages. Only you can turn them on.</p>
+    <div class="btns">${testRiders ? '<button data-act="teststop">Stop test riders</button><button data-act="testnotify">Test notification in 20 s</button>' : `<button data-act="teststart" ${testBusy ? 'disabled' : ''}>Start test riders</button>`}</div></details>`;
+}
+async function demo(action: string, extra: Record<string, unknown> = {}) {
+  const c = map.getCenter(), at = state.pos ?? { lat: c.lat, lon: c.lng };
+  const { data, error } = await community.client.functions.invoke('demo', { body: { action, lat: at.lat, lon: at.lon, ...extra } });
+  if (error) { let msg = error.message; try { msg = (await (error as { context?: Response }).context?.json())?.error ?? msg; } catch { /* keep */ } throw new Error(msg); }
+  return data as { running?: boolean; inSeconds?: number };
+}
+async function testAction(act: string) {
+  testBusy = true; renderPane();
+  try {
+    if (act === 'teststart') { await demo('start'); testRiders = true; toast('Test riders joined. Watch the map and the chat.'); }
+    if (act === 'teststop') { await demo('stop'); testRiders = false; toast('Test riders left the group.'); }
+    if (act === 'testnotify') { const r = await demo('later', { seconds: 20 }); toast(`Dean will message in ${r.inSeconds ?? 20} s. Close TrailLink now to see the notification.`); }
+    store.set('testRiders', testRiders);
+    await community.refreshGroup(); await chat.refresh();
+  } catch (err) { toast((err as Error).message); }
+  finally { testBusy = false; renderPane(); }
+}
+setInterval(() => {
+  if (!testRiders || document.visibilityState !== 'visible' || !community.group || !navigator.onLine) return;
+  void demo('tick').then(r => { if (r?.running === false) { testRiders = false; store.set('testRiders', false); } return community.refreshGroup(); }).then(() => chat.refresh()).catch(() => {});
+}, 10_000);
 
 async function shareGroupCode() {
   const g = community.group!;
@@ -1660,6 +1691,7 @@ function paneClick(e: Event) {
       <div class="btns"><button data-close>Keep</button><button class="danger" data-act2="removerider" data-id="${esc(r.email)}">Remove</button></div>`);
   }
   if (act === 'fitride') { fitRide(); return; }
+  if (act === 'teststart' || act === 'teststop' || act === 'testnotify') { void testAction(act); return; }
   if (act === 'sync') { void community.sync(); void backup.run(); }
   if (act === 'signout') void community.signOut().then(() => { state.signin = null; renderPane(); });
   if (act === 'signin-back') { state.signin = state.signin ? { ...state.signin, sent: false, error: undefined } : null; renderPane(); }

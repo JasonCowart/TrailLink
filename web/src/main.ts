@@ -21,6 +21,8 @@ const ICONS = {
   move: ico('<path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>'),
   camera: ico('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
   x: ico('<path d="M6 6l12 12M18 6 6 18"/>'),
+  download: ico('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
+  info: ico('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>'),
   pencil: ico('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
   pin: ico('<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.5"/>'),
   thumb: ico('<path d="M7 11v9H4v-9z"/><path d="M7 11l4-7c1.4 0 2.3 1.1 2 2.4L12.4 10H18a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 16.8 20H7"/>'),
@@ -306,7 +308,7 @@ function layersPanelHtml(): string {
       <p class="quiet">${modeNote}</p>
       <label class="tg"><span><span class="mk harder">▲</span><span class="mk easier">▼</span> Mark trails that are harder or easier for my rig</span> <input type="checkbox" data-set="rigMarks" ${state.rigMarks ? 'checked' : ''}></label>
       ${state.rigMarks && !v ? '<p class="quiet">Markers appear once you add a vehicle in the Garage tab.</p>' : ''}
-      <p class="quiet">Tap any trail for details and to rate it. Sources: Forest Service Motor Vehicle Use Maps and BLM travel plans (legal designations), plus OpenStreetMap (community data, not a legal designation). Covers ${state.trailMeta ? `${state.trailMeta.counts ? Object.values(state.trailMeta.counts).reduce((a, b) => a + b, 0).toLocaleString() : ''} routes in Colorado and Utah, updated ${new Date(state.trailMeta.built).toLocaleDateString()}` : 'Colorado and Utah'}. Always follow posted signs.</p>
+      <details class="about"><summary>${inl(ICONS.info, 16)} About the trail data</summary><p class="quiet">Tap any trail for details and to rate it. Sources: Forest Service Motor Vehicle Use Maps and BLM travel plans (legal designations), plus OpenStreetMap (community data, not a legal designation). Covers ${state.trailMeta ? `${state.trailMeta.counts ? Object.values(state.trailMeta.counts).reduce((a, b) => a + b, 0).toLocaleString() : ''} routes in Colorado and Utah, updated ${new Date(state.trailMeta.built).toLocaleDateString()}` : 'Colorado and Utah'}. Always follow posted signs.</p></details>
       <div class="btns"><button data-panel="legend">Legend</button><button class="primary" data-close>Done</button></div>`;
 }
 function legendPanelHtml(): string {
@@ -340,7 +342,7 @@ function basemapPanelHtml(): string {
       ${d ? `<div class="card"><b>Saving… ${d.done} of ${d.total}</b><div class="bar"><i style="width:${Math.round((d.done / Math.max(1, d.total)) * 100)}%"></i></div><div class="btns"><button data-act="cancel-dl">Cancel</button></div></div>`
           : `<div class="btns"><button class="primary" data-act="save-area">Save the area on screen</button></div>`}
       ${areas.map(a => `<div class="row"><div class="grow"><b>${esc(a.name)}</b><div class="quiet">Zoom ${a.minZ}–${a.maxZ} · ${a.tiles.toLocaleString()} pieces · ${new Date(a.savedAt).toLocaleDateString()}</div></div>
-        <button data-showarea="${a.id}">Show</button><button data-forget="${a.id}" aria-label="Remove from list" class="ibtn">${ICONS.x}</button></div>`).join('')}
+        <button class="ibtn" data-showarea="${a.id}" aria-label="Show on map">${ICONS.target}</button><button data-forget="${a.id}" aria-label="Remove from list" class="ibtn">${ICONS.x}</button></div>`).join('')}
       <p class="quiet" id="storage"></p>
       ${areas.length ? '<div class="btns"><button data-act="clear-tiles">Delete all saved maps</button></div>' : ''}
       <div class="btns"><button data-close>Done</button></div>`;
@@ -461,7 +463,7 @@ function memberRow(m: GroupMember): string {
   const stale = m.pos && Date.now() - Date.parse(m.pos.at) > STALE_MIN * 60000;
   return `<div class="row member"><span class="avatar${m.sharing && m.pos && !stale ? ' live' : ''}">${esc(initials(m.name))}</span>
     <div class="grow"><b>${esc(m.name)}${me ? ' (you)' : ''}</b><div class="quiet">${where}</div></div>
-    ${!me && m.sharing && m.pos ? `<button data-rider="${m.riderId}">Show</button>` : ''}</div>`;
+    ${!me && m.sharing && m.pos ? `<button class="ibtn" data-rider="${m.riderId}" aria-label="Show ${esc(m.name)} on map">${ICONS.target}</button>` : ''}</div>`;
 }
 
 function groupHtml(compact: boolean): string {
@@ -559,7 +561,7 @@ function badgesHtml(): string {
     return badgeTile(`m:${m.key}`, m.name, m.icon, m.color, sub, m.goal > 1 && m.unit ? v / m.goal : undefined);
   }).join('');
   return `<h2>Badge wall</h2>
-    <p class="quiet"><b>${earned} of ${total}</b> badges earned. Ride a badge trail with recording on: cover most of it and the badge is yours. Works with no signal.</p>
+    <p class="quiet"><b>${earned} of ${total}</b> badges earned</p><details class="about"><summary>${inl(ICONS.info, 16)} How to earn badge trails</summary><p class="quiet">Ride a badge trail with recording on: cover most of it and the badge is yours. Works with no signal.</p></details>
     <h2>Badge trails</h2>
     ${trails.length ? `<div class="badgegrid">${trailTiles}</div>` : `<p class="quiet">${community.signedIn ? 'No badge trails yet.' : 'Sign in (Trails tab) to see the badge trails.'}</p>`}
     ${community.isAdmin ? '<p class="quiet">Admin: to add a badge trail, tap a trail on the map, then <b>Make this a badge trail</b>.</p>' : ''}
@@ -1238,10 +1240,13 @@ function toast(msg: string) {
   clearTimeout((toast as unknown as { h?: number }).h);
   (toast as unknown as { h?: number }).h = window.setTimeout(() => { t.hidden = true; }, 4500);
 }
+/** Pop-ups share one minimal layout: a close X at the top right instead of Done / Cancel / OK buttons. */
+const CLOSE_ONLY = /<button(?: type="button")?(?: class="primary")? data-close>(?:Done|Close|Cancel|OK|Got it|Nice!|Not now)<\/button>/g;
 function sheet(html: string, cls = '') {
   const s = $('#sheet'), body = $('#sheet-body');
   state.panel = null;
-  body.className = `dialog ${cls}`; body.innerHTML = html; s.hidden = false;
+  const tidy = html.replace(CLOSE_ONLY, '').replace(/<div class="btns">\s*<\/div>/g, '');
+  body.className = `dialog ${cls}`; body.innerHTML = `<button class="ibtn sheetx" data-close aria-label="Close">${ICONS.x}</button>${tidy}`; s.hidden = false;
   body.querySelector<HTMLElement>('button')?.focus();
 }
 function closeSheet() { $('#sheet').hidden = true; state.panel = null; }
@@ -1279,7 +1284,7 @@ const views: Record<Tab, () => string> = {
       ${profileHtml()}
       ${pastRides.length ? `<h2>Past rides</h2>${pastRides.slice(0, 20).map(t => { const st = stats(t.points); const on = profileRide()?.id === t.id; return `
         <div class="row ride${on ? ' on' : ''}"><button class="pinmain grow" data-viewride="${t.id}" aria-pressed="${on}"><b>${esc(t.name)}</b><span class="quiet">${st.miles.toFixed(1)} mi · ${st.movingMin} min moving · ${st.gainFt.toLocaleString()} ft climbed${on ? ' · in the chart' : ''}</span></button>
-        <button data-gpx="${t.id}" aria-label="Export ${esc(t.name)} as GPX">GPX</button></div>`; }).join('')}` : ''}`;
+        <button class="ibtn" data-gpx="${t.id}" aria-label="Export ${esc(t.name)} as GPX" title="Export GPX">${ICONS.download}</button></div>`; }).join('')}` : ''}`;
   },
   trails() {
     const mine = community.trails();
@@ -1287,12 +1292,11 @@ const views: Record<Tab, () => string> = {
     const rated = community.myRatings().size;
     return `
       <h2>Add a trail</h2>
-      <p class="quiet">Missing a trail? Draw it on the map, or turn one of your recorded rides into a trail.</p>
       <div class="btns"><button class="primary" data-act="draw">Draw on the map</button>
-        ${rides.length ? `<select id="fromride" aria-label="Pick a recorded ride" style="flex:1 1 140px;min-height:48px;border-radius:14px;border:1px solid var(--line);padding:0 10px;background:var(--paper)"><option value="">From a recorded ride…</option>${rides.slice(0, 30).map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select>` : ''}</div>
+        ${rides.length ? `<select id="fromride" aria-label="Pick a recorded ride" style="flex:1 1 140px;min-height:44px;border-radius:12px;border:1px solid var(--line);padding:0 10px;background:var(--paper)"><option value="">From a recorded ride…</option>${rides.slice(0, 30).map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select>` : ''}</div>
       <h2>Your trails</h2>
       ${mine.length ? mine.map(t => { const l = levelOf(t.difficulty); return `<div class="row"><span class="dchip" style="--c:${l.color}">${t.difficulty}</span><div class="grow"><b>${esc(t.name)}</b><div class="quiet">${lengthMiles(t.coords).toFixed(1)} mi · by ${esc(t.createdBy)} · ${new Date(t.createdAt).toLocaleDateString()}</div></div>
-        <button data-showtrail="${t.id}">Show</button><button data-deltrail="${t.id}" aria-label="Delete ${esc(t.name)}" class="ibtn">${ICONS.x}</button></div>`; }).join('') : '<p class="quiet">None yet.</p>'}
+        <button class="ibtn" data-showtrail="${t.id}" aria-label="Show ${esc(t.name)} on map">${ICONS.target}</button><button data-deltrail="${t.id}" aria-label="Delete ${esc(t.name)}" class="ibtn">${ICONS.x}</button></div>`; }).join('') : '<p class="quiet">None yet.</p>'}
       <h2>Your ratings</h2>
       <p class="quiet">${rated ? `You've rated ${rated} trail${rated === 1 ? '' : 's'}.` : 'Tap any trail on the map and choose "Rate difficulty".'}</p>
       ${accountHtml()}`;
@@ -1300,10 +1304,10 @@ const views: Record<Tab, () => string> = {
   badges() { return badgesHtml(); },
   garage() {
     return `${garageHtml()}
-      <h2>How the forecast works</h2>
+      <details class="about"><summary>${inl(ICONS.info, 16)} How the forecast works</summary>
       <p class="quiet">Each rating saves the vehicle it was ridden in. For your rig, TrailLink starts from the riders' rating and adjusts it by how their vehicles compare to yours: a trail rated 7 in stock rigs may be a 4 in a full build, and the reverse.</p>
       <p class="quiet">Rig score: tires and lift count most, then lockers, then skid plates and rock sliders. A winch helps you recover, not climb, so it doesn't change the score.</p>
-      <p class="quiet">See it on the map: tap the layers button on the map, then Color trails by › Difficulty: my rig. The ▲ harder / ▼ easier markers can be turned on there too.</p>`;
+      <p class="quiet">See it on the map: tap the layers button on the map, then Color trails by › Difficulty: my rig. The ▲ harder / ▼ easier markers can be turned on there too.</p></details>`;
   },
   pins() {
     const p = state.pos;
@@ -1335,7 +1339,7 @@ const views: Record<Tab, () => string> = {
   group() {
     return `${community.isAdmin && community.signedIn ? adminHtml() : ''}
       ${groupHtml(false)}
-      <p class="quiet">Positions update when a phone has cell signal. Out of range, the map shows each rider's last known spot and how long ago it was. Agree on a Regroup point (Pins tab) before you split up.</p>`;
+      <details class="about"><summary>${inl(ICONS.info, 16)} No signal?</summary><p class="quiet">Positions update when a phone has cell signal. Out of range, the map shows each rider's last known spot and how long ago it was. Agree on a Regroup point (Pins tab) before you split up.</p></details>`;
   },
 };
 

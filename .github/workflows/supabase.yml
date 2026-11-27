@@ -7,7 +7,7 @@ on:
       action:
         description: 'test-backup = live test of rider backup with throwaway accounts; status = look only; setup = apply database changes and sign-in settings; test-email = send the admin a sign-in email'
         type: choice
-        options: [status, setup, test-email, test-backup, push-setup]
+        options: [status, setup, test-email, test-backup, push-setup, test-messages]
         default: status
 
 jobs:
@@ -58,3 +58,8 @@ jobs:
           node scripts/supabase-admin.mjs push-setup
           npx --yes supabase@latest functions deploy push --project-ref yxcyqbxzggpejldkmdqe --no-verify-jwt --use-api
           curl -s https://yxcyqbxzggpejldkmdqe.supabase.co/functions/v1/push | head -c 60; echo
+      - name: Live messaging test
+        if: inputs.action == 'test-messages'
+        run: |
+          cd web && npm install --silent && npm i --no-save --silent tsx && cd ..
+          node scripts/test-messages.mjs

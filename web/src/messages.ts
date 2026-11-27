@@ -149,7 +149,7 @@ export class GroupChat {
     const key = res?.ok ? ((await res.json()) as { publicKey?: string }).publicKey : undefined;
     if (!key) throw new Error('Notifications aren\'t set up on the server yet. Try again later.');
     const reg = await navigator.serviceWorker.ready;
-    const sub = (await reg.pushManager.getSubscription()) ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(key) });
+    const sub = (await reg.pushManager.getSubscription()) ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(key) as BufferSource });
     const j = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
     const { error } = await this.c.client.from('push_subscriptions').upsert({ endpoint: j.endpoint, rider_id: this.c.uid, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: 'endpoint' });
     if (error) throw new Error(error.message);
@@ -165,8 +165,8 @@ export class GroupChat {
   }
 }
 
-function urlB64(b64: string): Uint8Array {
+function urlB64(b64: string): Uint8Array<ArrayBuffer> {
   const pad = '='.repeat((4 - (b64.length % 4)) % 4);
   const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
-  return Uint8Array.from(raw, ch => ch.charCodeAt(0));
+  const out = new Uint8Array(new ArrayBuffer(raw.length)); for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i); return out;
 }

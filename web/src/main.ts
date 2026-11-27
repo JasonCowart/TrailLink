@@ -552,7 +552,9 @@ const chatViewOpen = () => chatOpen;
 function renderMapChat() {
   const g = community.signedIn ? community.group : null;
   if (!g) { chatPill.hidden = true; if (chatOpen) setChatOpen(false); return; }
-  const msgs = chat.thread(g.id), last = msgs[msgs.length - 1], n = chat.unread(g.id);
+  const msgs = chat.thread(g.id), n = chat.unread(g.id);
+  // With unread messages, the pill shows the newest one from someone else.
+  const last = (n ? [...msgs].reverse().find(m => m.riderId !== community.uid) : undefined) ?? msgs[msgs.length - 1];
   chatPill.hidden = chatOpen;
   chatPill.classList.toggle('unread', n > 0);
   chatPill.innerHTML = `${ICONS.chat}<span class="cptext">${last ? `<b>${last.riderId === community.uid ? 'You' : esc(last.by)}:</b> ${last.kind === 'location' ? 'shared a location' : esc(last.body)}` : `Chat with ${esc(g.name)}`}</span>${n ? `<i class="cpcount">${n > 9 ? '9+' : n}</i>` : ''}`;

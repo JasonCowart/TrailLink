@@ -388,7 +388,7 @@ button.qchip.urgent { border-color: var(--sos); color: var(--sos); }
 label.tg.small { min-height: 38px; font-size: 13px; color: var(--quiet); border-bottom: 0; }
 /* Unread count on the Group tab and the Riders map button */
 #tabs button[data-unread], #btn-riders[data-unread] { position: relative; }
-#tabs button[data-unread]::after, #btn-riders[data-unread]::after { content: attr(data-unread); position: absolute; top: 4px; right: 50%; margin-right: -30px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--sos); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+#tabs button[data-unread]::after, #btn-riders[data-unread]::after { content: attr(data-unread); position: absolute; top: 3px; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--sos); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
 #btn-riders[data-unread]::after { top: -4px; right: -4px; margin: 0; }
 
 /* Chat on the map: pill between SOS and Report, drawer over the bottom of the map, speech bubbles on rider dots */

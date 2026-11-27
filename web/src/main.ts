@@ -14,6 +14,9 @@ import { deletePhoto, hydratePhotos, loadedBlob, savePhoto, saveToLibrary } from
 import { Backup, type Change } from './backup.ts';
 import { GroupChat, QUICK, type ChatMessage } from './messages.ts';
 import { PhoneCompass, compassHtml, type CompassMark, type HeadingSource } from './compass.ts';
+import { buildGraph, progress, trackRoute, trailRoute, type LL, type Route } from './getout.ts';
+import qrcode from 'qrcode-generator';
+import jsQR from 'jsqr';
 import { PIN_ICONS, REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
 import { FT, GRADES, MI, buildProfile, distAtX, indexAt, profileSvg, scrubXY, W as PROFILE_W, type Profile, type ProfileMark } from './profile.ts';
 // Small line icons for compact buttons.
@@ -24,12 +27,16 @@ const ICONS = {
   camera: ico('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
   x: ico('<path d="M6 6l12 12M18 6 6 18"/>'),
   reply: ico('<path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 6 6"/>'),
+  qr: ico('<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z"/><path d="M14 14h2v2h-2zM18 14h2M14 18h2M18 18h2v2M16 16h2v2"/>'),
+  exit: ico('<path d="M14 4h5v16h-5"/><path d="M10 8l-4 4 4 4M6 12h10"/>'),
+  flag: ico('<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'),
   speaker: ico('<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>'),
   chat: ico('<path d="M4 5h16v11H9l-5 4z"/>'),
   send: ico('<path d="M4 12l16-8-6 16-2.5-6.5z"/><path d="M11.5 13.5L20 4"/>'),
   bell: ico('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>'),
   download: ico('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
   info: ico('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>'),
+  arrowUp: ico('<path d="M12 3l7 10h-4.5v8h-5v-8H5z" fill="currentColor" stroke="none"/>'),
   pencil: ico('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
   pin: ico('<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.5"/>'),
   thumb: ico('<path d="M7 11v9H4v-9z"/><path d="M7 11l4-7c1.4 0 2.3 1.1 2 2.4L12.4 10H18a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 16.8 20H7"/>'),
@@ -532,13 +539,14 @@ function groupHtml(compact: boolean): string {
     <p class="quiet">Start a group for a ride and share its code, or join one. You choose when the group can see your location.</p>
     <form id="groupstart" class="form"><label>Start a group<input name="name" required maxlength="40" placeholder="e.g. Saturday at Taylor Park"></label>
       <div class="btns"><button class="primary" ${state.groupBusy ? 'disabled' : ''}>Start group</button></div></form>
-    <form id="groupjoin" class="form"><label>Or join with a code<input name="code" required maxlength="8" autocapitalize="characters" autocomplete="off" placeholder="6-letter code" style="text-transform:uppercase;letter-spacing:3px"></label>
+    <div class="btns"><button data-act="groupscan">${inl(ICONS.qr)} Scan a group's QR code</button></div>
+    <form id="groupjoin" class="form"><label>Or type the code<input name="code" required maxlength="8" autocapitalize="characters" autocomplete="off" placeholder="6-letter code" style="text-transform:uppercase;letter-spacing:3px"></label>
       <div class="btns"><button ${state.groupBusy ? 'disabled' : ''}>Join group</button></div></form>${err}${compact ? '' : rideLogHtml()}`;
   const me = community.session?.user.id;
   const members = [...community.members].sort((a, b) => (a.riderId === me ? -1 : b.riderId === me ? 1 : a.name.localeCompare(b.name)));
   const sharingCount = members.filter(m => m.sharing).length;
   return `<h2>${esc(g.name)}</h2>
-    <div class="row"><div class="grow"><div class="quiet">Join code</div><b class="code">${esc(g.code)}</b></div><button data-act="groupshare">Share code</button></div>
+    <div class="row"><div class="grow"><div class="quiet">Join code</div><b class="code">${esc(g.code)}</b></div><button class="ibtn" data-act="groupqr" aria-label="Show QR code to join" title="QR code">${ICONS.qr}</button><button data-act="groupshare">Share</button></div>
     <label class="tg"><span><b>Share my location</b><br><span class="quiet">${community.sharing ? 'The group can see where you are.' : 'Off: the group can\'t see you.'}</span></span>
       <input type="checkbox" data-set="sharing" ${community.sharing ? 'checked' : ''} ${state.groupBusy ? 'disabled' : ''}></label>
     ${err}
@@ -547,6 +555,7 @@ function groupHtml(compact: boolean): string {
     <p class="quiet" style="margin:12px 0 4px"><b>Riders (${members.length})</b> · ${sharingCount} sharing${community.groupUpdated ? ` · updated ${ago(community.groupUpdated)}` : ''}${navigator.onLine ? '' : ' · no signal'}</p>
     ${members.map(memberRow).join('') || '<p class="quiet">Loading…</p>'}
     <div class="btns">${compact ? '' : '<button data-act="grouprefresh">Refresh</button>'}<button class="danger" data-act="groupleave">Leave group</button></div>
+    ${compact ? '' : checklistHtml()}
     ${compact ? '' : testRidersHtml()}
     ${compact ? '' : rideLogHtml()}`;
 }
@@ -924,9 +933,203 @@ setInterval(() => {
   void demo('tick').then(r => { if (r?.running === false) { testRiders = false; store.set('testRiders', false); } return community.refreshGroup(); }).then(() => chat.refresh()).catch(() => {});
 }, 10_000);
 
+// ---------------------------------------------------------------- join by QR code
+const joinLink = (code: string) => `${APP_URL}#join=${code}`;
+function qrSvg(text: string): string {
+  const q = qrcode(0, 'M'); q.addData(text); q.make();
+  return q.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
+}
+function showGroupQr() {
+  const g = community.group!;
+  sheet(`<h3>Join ${esc(g.name)}</h3><p class="quiet">Riders scan this in TrailLink (Group › Scan a group's QR code), or with the phone's camera.</p>
+    <div class="qrbox">${qrSvg(joinLink(g.code))}</div><p class="bigcode">${esc(g.code)}</p>
+    <div class="btns"><button data-act="groupshare">Share link</button></div>`);
+}
+/** A join code from a scanned QR (our link) or plain text. */
+function codeFrom(text: string): string | null {
+  const m = text.match(/#join=([A-Za-z0-9]{4,10})/) ?? text.trim().match(/^([A-Za-z0-9]{6})$/);
+  return m ? m[1].toUpperCase() : null;
+}
+let scanStream: MediaStream | null = null;
+function stopScan() { scanStream?.getTracks().forEach(t => t.stop()); scanStream = null; }
+async function scanQr() {
+  if (!community.signedIn) { toast('Sign in first (Trails tab).'); return; }
+  if (!navigator.mediaDevices?.getUserMedia) { toast('This browser can\'t use the camera. Type the code instead.'); return; }
+  sheet(`<h3>Scan to join</h3><p class="quiet">Point the camera at the QR code on the other rider's phone.</p><div class="scanbox"><video playsinline muted></video><i class="scanframe"></i></div>`);
+  const video = document.querySelector<HTMLVideoElement>('#sheet-body video')!;
+  try { scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }); }
+  catch { closeSheet(); toast('Camera not allowed. Type the code instead.'); return; }
+  video.srcObject = scanStream; await video.play().catch(() => {});
+  const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  const tick = () => {
+    if (!scanStream || $('#sheet').hidden || !video.isConnected) { stopScan(); return; }
+    if (video.videoWidth) {
+      const w = Math.min(640, video.videoWidth), h = Math.round(w * video.videoHeight / video.videoWidth);
+      canvas.width = w; canvas.height = h; ctx.drawImage(video, 0, 0, w, h);
+      const hit = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
+      const code = hit && codeFrom(hit.data);
+      if (code) { stopScan(); navigator.vibrate?.(60); closeSheet(); joinByCode(code); return; }
+    }
+    setTimeout(tick, 200);
+  };
+  tick();
+}
+function joinByCode(code: string) {
+  if (!community.signedIn) { store.set('pendingJoin', code); toast('Sign in, and you\'ll join the group right after.'); return; }
+  if (community.group?.code === code) { toast('You\'re already in this group.'); return; }
+  state.groupBusy = true; renderPane();
+  community.joinGroup(code).then(() => { toast(`You joined ${community.group?.name ?? 'the group'}.`); state.tab = 'group'; setPanel(true); render(); void chat.refresh(); },
+    (err: Error) => toast(err.message)).finally(() => { state.groupBusy = false; renderPane(); });
+}
+// Opened from a join link (QR code scanned with the phone's camera, or a shared text).
+{
+  const m = location.hash.match(/#join=([A-Za-z0-9]{4,10})/);
+  if (m) { store.set('pendingJoin', m[1].toUpperCase()); history.replaceState(null, '', location.pathname); }
+}
+function maybePendingJoin() {
+  const code = store.get<string | null>('pendingJoin', null);
+  if (!code || !community.signedIn) return;
+  store.set('pendingJoin', null);
+  sheet(`<h3>Join this ride group?</h3><p>Group code <b class="code">${esc(code)}</b></p><div class="btns"><button data-close>Not now</button><button class="primary" data-joinnow="${esc(code)}">Join group</button></div>`);
+}
+document.addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLElement>('[data-joinnow]'); if (b) { closeSheet(); joinByCode(b.dataset.joinnow!); } });
+
+// ---------------------------------------------------------------- first-ride checklist
+function checklistHtml(): string {
+  const standalone = (navigator as Navigator & { standalone?: boolean }).standalone || matchMedia('(display-mode: standalone)').matches;
+  const me = community.members.find(m => m.riderId === community.uid);
+  const items: [boolean, string, string][] = [
+    [standalone, 'Opened from the Home Screen icon', standalone ? '' : '<button data-act="installhelp">How</button>'],
+    [community.signedIn, 'Signed in', ''],
+    [!!state.pos, 'GPS location on', state.pos ? '' : '<span class="quiet">Allow location</span>'],
+    [!!community.group && !!me?.sharing, 'In a group, sharing location', ''],
+    [chat.pushOn, 'Message notifications on', chat.pushOn || !chat.pushSupported ? '' : '<button data-act="pushon">Turn on</button>'],
+    [savedAreas().length > 0, 'Offline map saved for the ride area', savedAreas().length ? '' : '<button data-act="offlinehelp">Save</button>'],
+    [community.garage().length > 0, 'Vehicle in the Garage (optional)', ''],
+  ];
+  const done = items.filter(i => i[0]).length;
+  return `<details class="about checklist"${done < items.length ? ' open' : ''}><summary>${inl(ICONS.check, 16)} Ready to ride? ${done}/${items.length}</summary>
+    ${items.map(([ok, label, fix]) => `<div class="ckrow${ok ? ' ok' : ''}"><i>${ok ? ICONS.check : ''}</i><span>${label}</span>${ok ? '' : fix}</div>`).join('')}
+    <div class="btns"><button data-act="sharesetup">Send setup steps to a rider</button></div></details>`;
+}
+
+async function shareSetup() {
+  const g = community.group;
+  const text = `TrailLink setup for our ride:
+1. Open ${APP_URL} in Safari (iPhone) or Chrome (Android).
+2. Add it to your Home Screen (Share › Add to Home Screen) and open it from there.
+3. Sign in with the 6-digit code that's emailed to you (I approve your email first: tell me which one).
+4. Allow location${g ? `, then join our group: ${joinLink(g.code)} (code ${g.code})` : ', then join our group with the code I send'}.
+5. In the chat, tap the bell to turn on notifications.
+6. Before we lose signal: Base map button › Offline maps › save the ride area.`;
+  if (navigator.share) { try { await navigator.share({ title: 'TrailLink setup', text }); return; } catch (e) { if ((e as Error).name === 'AbortError') return; } }
+  location.href = `sms:?&body=${encodeURIComponent(text)}`;
+}
+
+// ---------------------------------------------------------------- Get me out
+interface Dest { name: string; at: LL; kind: 'start' | 'pin' | 'rider' }
+function getOutDests(): Dest[] {
+  const out: Dest[] = [];
+  const rec = state.recording?.points[0];
+  const last = state.tracks.find(t => t.endedAt && t.points.length > 1 && Date.now() - t.startedAt < 36 * 3600e3);
+  if (rec) out.push({ name: 'Where this ride started', at: rec, kind: 'start' });
+  else if (last) out.push({ name: `Start of ${last.name}`, at: last.points[0], kind: 'start' });
+  for (const p of state.pins) if (p.kind === 'regroup' || p.note) out.push({ name: pinTitle(p), at: p, kind: 'pin' });
+  for (const m of community.members) if (m.pos && m.sharing && m.riderId !== community.uid) out.push({ name: m.name.replace(/\s*\(test\)/, ''), at: m.pos, kind: 'rider' });
+  const here = state.pos;
+  return here ? out.sort((a, b) => (a.kind === 'start' ? -1 : 0) - (b.kind === 'start' ? -1 : 0) || distanceM(here, a.at) - distanceM(here, b.at)) : out;
+}
+function getOutSheet() {
+  if (!state.pos) { toast('Waiting for GPS. Step into open sky.'); return; }
+  const here = state.pos, dests = getOutDests();
+  sheet(`<h3 class="withicon">${inl(ICONS.exit, 26)} Get me out</h3>
+    <p class="quiet">Pick where to go. The route uses the trails saved on your phone and your recorded ride, so it works with no signal.</p>
+    ${dests.length ? dests.slice(0, 12).map((d, i) => `<div class="row"><button class="pinmain" data-getout="${i}"><b>${esc(d.name)}</b><span class="quiet">${(distanceM(here, d.at) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(here, d.at))} · ${d.kind === 'start' ? 'trailhead / where you parked' : d.kind === 'rider' ? 'group rider' : 'your pin'}</span></button></div>`).join('')
+      : '<p>No destinations yet. Record your ride (Ride tab) so TrailLink knows where you started, or drop a Regroup pin at camp or the trailhead.</p>'}`);
+  getOutChoices = dests;
+}
+let getOutChoices: Dest[] = [];
+document.addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLElement>('[data-getout]'); if (b) { const d = getOutChoices[Number(b.dataset.getout)]; closeSheet(); if (d) void startGetOut(d); } });
+
+let goRoute: Route | null = null, goDest: Dest | null = null, goIdx = 0, goRerouteAt = 0, goBusy = false;
+const goFlag = new maplibregl.Marker({ element: Object.assign(document.createElement('div'), { className: 'goflag', innerHTML: ICONS.flag }), anchor: 'bottom-left' });
+const guideEl = Object.assign(document.createElement('div'), { id: 'guide', hidden: true });
+$('#mapwrap').append(guideEl);
+/** Trail lines currently on the phone (saved/loaded map tiles), as [lon, lat] arrays. Closed trails are left out. */
+function trailLines(): number[][][] {
+  const out: number[][][] = [];
+  for (const f of map.querySourceFeatures('trails', { sourceLayer: 'trails' })) {
+    if (f.properties?.utv === 'closed') continue;
+    const g = f.geometry;
+    if (g.type === 'LineString') out.push(g.coordinates as number[][]);
+    else if (g.type === 'MultiLineString') out.push(...(g.coordinates as number[][][]));
+  }
+  return out;
+}
+async function computeRoute(from: LL, to: LL): Promise<Route> {
+  // Make sure the trail tiles between here and there are loaded: show both ends, wait for the map to settle.
+  const b = new maplibregl.LngLatBounds([from.lon, from.lat], [from.lon, from.lat]).extend([to.lon, to.lat]);
+  map.fitBounds(b, { padding: 70, maxZoom: 15, duration: 0 });
+  if (map.getZoom() < 10) map.setZoom(10);
+  await new Promise<void>(r => { const t = setTimeout(r, 5000); map.once('idle', () => { clearTimeout(t); r(); }); });
+  const tracks = [state.recording, ...state.tracks].filter(Boolean).map(t => t!.points as LL[]);
+  const viaTrails = trailRoute(buildGraph(trailLines()), from, to);
+  const viaTrack = trackRoute(tracks, from, to);
+  const best = [viaTrails, viaTrack].filter((r): r is Route => !!r).sort((x, y) => x.length - y.length)[0];
+  return best ?? { coords: [from, to], length: distanceM(from, to), via: 'straight' };
+}
+function routeGeo(): FeatureCollection {
+  return { type: 'FeatureCollection', features: goRoute ? [{ type: 'Feature', properties: { via: goRoute.via }, geometry: { type: 'LineString', coordinates: goRoute.coords.map(c => [c.lon, c.lat]) } }] : [] };
+}
+function drawRoute() {
+  if (!map.getSource('goroute')) {
+    map.addSource('goroute', { type: 'geojson', data: routeGeo() });
+    map.addLayer({ id: 'goroute-casing', type: 'line', source: 'goroute', paint: { 'line-color': '#fff', 'line-width': 10, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'goroute-line', type: 'line', source: 'goroute', paint: { 'line-color': '#16A34A', 'line-width': 6, 'line-dasharray': ['case', ['==', ['get', 'via'], 'straight'], ['literal', [1, 1.5]], ['literal', [1, 0]]] as never }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  } else (map.getSource('goroute') as GeoJSONSource).setData(routeGeo());
+}
+map.on('style.load', () => { if (goRoute) setTimeout(drawRoute, 0); });
+async function startGetOut(d: Dest, quiet = false) {
+  if (!state.pos || goBusy) return;
+  goBusy = true; goDest = d;
+  guideEl.hidden = false; guideEl.innerHTML = '<span class="gtext"><b>Finding a route…</b></span>';
+  try {
+    goRoute = await computeRoute(state.pos, d.at); goIdx = 0; goRerouteAt = Date.now();
+    drawRoute(); goFlag.setLngLat([d.at.lon, d.at.lat]).addTo(map);
+    const mi = (goRoute.length / 1609.344).toFixed(1);
+    if (!quiet) speak(`Route to ${d.name}: ${mi} miles${goRoute.via === 'straight' ? ', straight line. No trail connects, so watch the terrain' : goRoute.via === 'track' ? ', back the way you came' : ''}.`, true);
+    state.follow = true; $('#btn-center').classList.add('active');
+    map.easeTo({ center: [state.pos.lon, state.pos.lat], zoom: 15 });
+    updateGuide();
+  } finally { goBusy = false; }
+}
+function stopGetOut() {
+  goRoute = null; goDest = null; guideEl.hidden = true; goFlag.remove();
+  (map.getSource('goroute') as GeoJSONSource | undefined)?.setData(routeGeo());
+  drawHeading();
+}
+function updateGuide() {
+  if (!goRoute || !goDest || !state.pos) return;
+  const pr = progress(goRoute, state.pos, goIdx); goIdx = pr.index;
+  if (distanceM(state.pos, goDest.at) < 40) {
+    speak(`You've arrived at ${goDest.name}.`, true); toast(`You've arrived at ${goDest.name}.`); stopGetOut(); return;
+  }
+  if (pr.off > 75 && Date.now() - goRerouteAt > 20000 && !goBusy) {
+    goRerouteAt = Date.now(); speak('Off route. Finding a new route.'); void startGetOut(goDest, true); return;
+  }
+  const h = myHeading(), b = bearingDeg(state.pos, pr.ahead);
+  const turn = h.source === 'map' ? b - map.getBearing() : b - h.deg;
+  const mph = Math.max(state.pos.speed ?? 0, 0) > 2 ? (state.pos.speed! * 2.23694) : 10;
+  const mins = Math.max(1, Math.round((pr.remaining / 1609.344) / mph * 60));
+  guideEl.innerHTML = `<span class="garrow" style="rotate:${turn.toFixed(0)}deg">${ICONS.arrowUp}</span>
+    <span class="gtext"><b>${(pr.remaining / 1609.344).toFixed(1)} mi · ~${mins} min</b><span>${esc(goDest.name)} · ${goRoute.via === 'trails' ? 'on trails' : goRoute.via === 'track' ? 'back the way you came' : 'straight line'}${pr.off > 40 ? ' · off route' : ''}</span></span>
+    <button class="ibtn" data-act="getoutstop" aria-label="Stop route">${ICONS.x}</button>`;
+  drawHeading();
+}
+
 async function shareGroupCode() {
   const g = community.group!;
-  const text = `Join my TrailLink ride group "${g.name}": open ${APP_URL}, tap the Group tab and enter code ${g.code}.`;
+  const text = `Join my TrailLink ride group "${g.name}": ${joinLink(g.code)} (or open TrailLink, tap Group and enter code ${g.code}).`;
   if (navigator.share) { try { await navigator.share({ title: 'TrailLink ride group', text }); return; } catch (e) { if ((e as Error).name === 'AbortError') return; } }
   location.href = `sms:?&body=${encodeURIComponent(text)}`;
 }
@@ -1240,6 +1443,7 @@ function drawHeading() {
     if (me) {
       const asking = new Set(chat.activeHelps(community.group?.id).map(h => h.riderId));
       for (const m of community.members) if (m.pos && m.sharing && m.riderId !== community.uid && !asking.has(m.riderId)) marks.push({ bearing: bearingDeg(me, m.pos), label: esc(initials(m.name)), kind: 'rider', title: `${esc(m.name)} · ${(distanceM(me, m.pos) / 1609.344).toFixed(1)} mi` });
+      if (goDest) marks.push({ bearing: bearingDeg(me, goDest.at), label: '', kind: 'dest', title: goDest.name });
       for (const p of state.pins) if (p.kind === 'regroup') marks.push({ bearing: bearingDeg(me, p), label: '', kind: 'regroup', title: 'Regroup point' });
       for (const h of chat.activeHelps(community.group?.id)) { const at = h.riderId === community.uid ? null : helpSpot(h); if (at) marks.push({ bearing: bearingDeg(me, at), label: `SOS ${esc(initials(h.by))}`, kind: 'hazard', title: `${esc(h.by)} needs help` }); }
     }
@@ -1277,7 +1481,7 @@ function onPosition(p: GeolocationPosition) {
   state.pos = { lat: c.latitude, lon: c.longitude, acc: Math.round(c.accuracy), alt: c.altitude ?? undefined, speed: c.speed ?? undefined, heading: c.heading ?? undefined, t: p.timestamp };
   meMarker.setLngLat([c.longitude, c.latitude]);
   if (!meMarker.getElement().isConnected) meMarker.addTo(map);
-  drawHeading(); updateRideMode();
+  drawHeading(); updateRideMode(); updateGuide();
   if (state.follow) map.easeTo({ center: [c.longitude, c.latitude], zoom: Math.max(map.getZoom(), 13), duration: 600 });
   if (state.recording) {
     const pt: Pt = { lat: c.latitude, lon: c.longitude, t: p.timestamp, alt: c.altitude ?? undefined };
@@ -1783,6 +1987,7 @@ const views: Record<Tab, () => string> = {
         ${state.recording ? '<button class="danger" data-act="stop">Stop recording</button>' : '<button class="primary" data-act="record">Start recording</button>'}
         <button data-act="regroup">Regroup point here</button>
       </div>
+      <div class="btns">${goRoute ? '<button data-act="getoutstop">Stop route</button>' : `<button class="getoutbtn" data-act="getout">${inl(ICONS.exit)} Get me out</button>`}</div>
       <label class="tg">Keep screen on during the ride <input type="checkbox" data-set="keepAwake" ${state.keepAwake ? 'checked' : ''}></label>
       ${p ? `<p class="quiet">You: ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)} · ±${p.acc} m</p>` : '<p class="quiet">Waiting for GPS. Step into open sky.</p>'}
       ${profileHtml()}
@@ -1965,6 +2170,14 @@ function paneClick(e: Event) {
   if (b.dataset.badge) badgeSheet(b.dataset.badge);
   if (act === 'checkrides') { const got = checkBadges(state.tracks.filter(t => t.endedAt && t.points.length > 1), true); if (!got) toast('Checked your rides. No new badges yet.'); }
   if (act === 'groupshare' && community.group) void shareGroupCode();
+  if (act === 'groupqr' && community.group) { showGroupQr(); return; }
+  if (act === 'groupscan') { void scanQr(); return; }
+  if (act === 'getout') { getOutSheet(); return; }
+  if (act === 'installhelp') { installHelp(); return; }
+  if (act === 'offlinehelp') { openPanel('basemap'); return; }
+  if (act === 'pushon') { chat.enablePush().then(() => { toast('Notifications on for new group messages.'); renderPane(); }, (err: Error) => toast(err.message)); return; }
+  if (act === 'getoutstop') { stopGetOut(); return; }
+  if (act === 'sharesetup') { void shareSetup(); return; }
   if (act === 'groupleave' && community.group) sheet(`<h3>Leave ${esc(community.group.name)}?</h3><p>The group won't see you anymore. You can rejoin with the code.</p><div class="btns"><button data-close>Stay</button><button class="danger" data-act2="leavegroup">Leave</button></div>`);
   if (act === 'grouprefresh') void community.refreshGroup();
   if (b.dataset.rider) { const m = community.members.find(x => x.riderId === b.dataset.rider); if (m?.pos) { state.follow = false; if (state.panel) closeSheet(); map.flyTo({ center: [m.pos.lon, m.pos.lat], zoom: Math.max(map.getZoom(), 14) }); } }
@@ -2179,6 +2392,7 @@ function showSos() {
     <div class="card"><b>Call or text 911</b><p>With no cell signal, use your phone's Emergency SOS via satellite (iPhone 14 or later, recent Pixel and Galaxy phones): step into open sky, call or text 911, and follow the prompts. If someone has an inReach, use it too.</p>
       <p>Read the coordinates above to the dispatcher.</p>
       <div class="btns"><a class="btnlink danger" href="tel:911">Call 911</a><button data-act2="sos-copy">Copy coordinates</button></div></div>
+    <div class="btns"><button class="getoutbtn" data-act="getout">${inl(ICONS.exit)} Get me out: route back</button></div>
     <p>This spot is saved as an "Emergency" pin.</p>
     <div class="btns"><button data-close>Close</button></div>`, 'sos');
   if (p) { state.pins.unshift({ id: String(Date.now()), kind: 'hazard', lat: p.lat, lon: p.lon, t: Date.now(), note: 'Emergency' }); store.savePins(state.pins); drawPins(); }
@@ -2249,7 +2463,7 @@ function backupHtml(): string {
     <label class="tg"><span>Back up photos<br><span class="quiet">Uses mobile data. Turn off to keep photos on this phone only.</span></span><input type="checkbox" data-set="photoBackup" ${backup.photoBackup ? 'checked' : ''}></label></div>`;
 }
 let wasSignedIn = false;
-function backupOnSignIn() { if (community.signedIn && !wasSignedIn) backup.schedule(500); wasSignedIn = community.signedIn; }
+function backupOnSignIn() { if (community.signedIn && !wasSignedIn) { backup.schedule(500); setTimeout(maybePendingJoin, 800); } wasSignedIn = community.signedIn; }
 setInterval(() => { if (document.visibilityState === 'visible') backup.schedule(0); }, 180_000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') backup.schedule(500); });
 window.addEventListener('online', () => backup.schedule(1000));

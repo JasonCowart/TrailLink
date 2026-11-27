@@ -46,7 +46,7 @@ export class PhoneCompass {
 const NAMES = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 export const cardinal = (deg: number) => NAMES[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
 
-export interface CompassMark { bearing: number; label: string; kind: 'rider' | 'regroup' | 'hazard'; color?: string; title?: string }
+export interface CompassMark { bearing: number; label: string; kind: 'rider' | 'regroup' | 'hazard' | 'dest'; color?: string; title?: string }
 
 /** The compass bar: 120° of view, ticks every 5°, letters every 45°, numbers every 15°, marks for riders and regroup points. */
 export function compassHtml(heading: number, source: HeadingSource, marks: CompassMark[], width: number, headingUp: boolean): string {

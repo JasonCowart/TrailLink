@@ -7,7 +7,7 @@ on:
       action:
         description: 'test-backup = live test of rider backup with throwaway accounts; status = look only; setup = apply database changes and sign-in settings; test-email = send the admin a sign-in email'
         type: choice
-        options: [status, setup, test-email, test-backup]
+        options: [status, setup, test-email, test-backup, push-setup]
         default: status
 
 jobs:
@@ -51,3 +51,10 @@ jobs:
         run: |
           cd web && npm install --silent && npm i --no-save --silent fake-indexeddb tsx && cd ..
           node scripts/test-backup.mjs
+      - name: Notifications (keys, database hook, push function)
+        if: inputs.action == 'push-setup'
+        run: |
+          npm install --no-save --silent web-push
+          node scripts/supabase-admin.mjs push-setup
+          npx --yes supabase@latest functions deploy push --project-ref yxcyqbxzggpejldkmdqe --no-verify-jwt --use-api
+          curl -s https://yxcyqbxzggpejldkmdqe.supabase.co/functions/v1/push | head -c 60; echo

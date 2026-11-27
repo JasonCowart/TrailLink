@@ -106,6 +106,26 @@ try {
     const body = (await res.text()).replaceAll(admin.email, '<admin>').slice(0, 300);
     if (!res.ok) throw new Error(`sign-in email failed: HTTP ${res.status} ${body}`);
     console.log('Test sign-in email sent to the admin.');
+  } else if (cmd === 'push-setup') {
+    // Phone notifications for group messages: keys for Web Push (kept as Edge Function secrets, never printed),
+    // pg_net for the database to call the function, and the function's address + shared secret in private.push_config.
+    const { randomBytes } = await import('node:crypto');
+    const existing = (await call('GET', '/secrets')).map(x => x.name);
+    const [{ configured }] = await sql(`select (to_regclass('private.push_config') is not null and exists (select 1 from private.push_config)) as configured`);
+    if (!existing.includes('VAPID_PRIVATE_KEY') || !existing.includes('PUSH_HOOK_SECRET') || !configured) {
+      const webpush = (await import('web-push')).default;
+      const keys = existing.includes('VAPID_PRIVATE_KEY') ? null : webpush.generateVAPIDKeys();
+      const hook = randomBytes(24).toString('hex');
+      const secrets = [{ name: 'PUSH_HOOK_SECRET', value: hook }, { name: 'VAPID_SUBJECT', value: 'https://jasoncowart.github.io/TrailLink/' }];
+      if (keys) secrets.push({ name: 'VAPID_PUBLIC_KEY', value: keys.publicKey }, { name: 'VAPID_PRIVATE_KEY', value: keys.privateKey });
+      await call('POST', '/secrets', secrets);
+      await sql(`create extension if not exists pg_net`);
+      await sql(`insert into private.push_config (id, url, secret) values (1, 'https://${REF}.supabase.co/functions/v1/push', '${hook}')
+        on conflict (id) do update set url = excluded.url, secret = excluded.secret`);
+      console.log(`Notification keys ${keys ? 'created' : 'kept'}; database hook set up.`);
+    } else console.log('Notifications already set up.');
+    const [{ pgnet }] = await sql(`select exists (select 1 from pg_extension where extname = 'pg_net') as pgnet`);
+    console.log(`  pg_net installed: ${pgnet}`);
   } else throw new Error(`unknown command ${cmd}`);
 } catch (e) {
   console.error(`::error::${e.message}`);

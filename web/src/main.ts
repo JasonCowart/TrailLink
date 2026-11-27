@@ -19,7 +19,7 @@ import qrcode from 'qrcode-generator';
 import { Breadcrumbs } from './groupline.ts';
 import jsQR from 'jsqr';
 import { PIN_ICONS, REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
-import { FT, GRADES, MI, buildProfile, distAtX, indexAt, profileSvg, scrubXY, W as PROFILE_W, type Profile, type ProfileMark } from './profile.ts';
+import { FT, GRADES, MI, buildProfile, distAtX, indexAt, indexNear, miniProfileSvg, profileSvg, scrubXY, W as PROFILE_W, type Profile, type ProfileMark } from './profile.ts';
 // Small line icons for compact buttons.
 const ico = (d: string) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const ICONS = {
@@ -82,6 +82,7 @@ const state = {
   compass: store.get('compass', true),
   groupLine: store.get('groupLine', true),
   myRides: store.get('myRides', true),
+  elevLine: store.get('elevLine', true),
   theme: store.get<'auto' | 'light' | 'dark'>('theme', 'auto'),
   viewRide: null as string | null,
   scrubI: null as number | null,
@@ -373,6 +374,7 @@ function layersPanelHtml(): string {
       <label class="tg">OHV trails and roads <input type="checkbox" data-set="trails" ${state.trails ? 'checked' : ''}></label>
       <label class="tg">Compass bar <input type="checkbox" data-set="compass" ${state.compass ? 'checked' : ''}></label>
       <label class="tg">My recorded rides <input type="checkbox" data-set="myRides" ${state.myRides ? 'checked' : ''}></label>
+      <label class="tg">Elevation strip (ride you're recording or picked) <input type="checkbox" data-set="elevLine" ${state.elevLine ? 'checked' : ''}></label>
       <label class="tg">Group line (who's falling behind) <input type="checkbox" data-set="groupLine" ${state.groupLine ? 'checked' : ''}></label>
       <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
       <p class="quiet" style="margin:12px 0 4px"><b>Color trails by</b></p>
@@ -527,8 +529,19 @@ function drawRiders() { (map.getSource('riders') as GeoJSONSource | undefined)?.
 // A slim line above the chat bar: the leader on the right, everyone placed by how far along the trail they are.
 let crumbs: Breadcrumbs | null = null, crumbsGroup = '';
 const lineEl = Object.assign(document.createElement('div'), { id: 'groupline', hidden: true });
-$('#mapwrap').append(lineEl);
+// Strips stacked above the chat bar: the elevation strip, then the group line.
+const stripsEl = Object.assign(document.createElement('div'), { id: 'mapstrips' });
+const elevEl = Object.assign(document.createElement('div'), { id: 'elevline', hidden: true });
+stripsEl.append(elevEl, lineEl);
+let elevCache: { id: string; n: number; pr: Profile | null } | null = null, elevAt: number | null = null, elevDrag = false, elevDrawnAt = 0, elevTimer = 0;
+
+$('#mapwrap').append(stripsEl);
 let behindSpokenAt = 0;
+/** "Maria", "You and Maria", "Maria, Dean and Kim". */
+function behindNames(names: string[]): string {
+  const n = [...names].sort((a, b) => (b === 'You' ? 1 : 0) - (a === 'You' ? 1 : 0));
+  return n.length < 2 ? n.join('') : `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}`;
+}
 function drawGroupLine() {
   const g = community.signedIn ? community.group : null;
   if (!g || !state.groupLine) { lineEl.hidden = true; return; }
@@ -555,7 +568,7 @@ function drawGroupLine() {
     return `<span class="gl-dot${me ? ' me' : ''}${late ? ' late' : ''}" style="left:${x.toFixed(1)}%" title="${esc(name(p.riderId))}">${me ? '' : esc(initials(name(p.riderId)))}</span>`;
   }).join('');
   const tail = hi - last.along;
-  lineEl.innerHTML = `<div class="gl-track">${dots}</div><div class="gl-text">${behind.length ? `<b class="late">${esc(behind.map(p => name(p.riderId)).join(', '))} ${(gap / 1609.344).toFixed(1)} mi behind</b>` : `Group spread ${fmtDistShort(tail)}`}${behind.length ? '' : `<span>Leader: ${esc(name(sorted[sorted.length - 1].riderId))}</span>`}</div>`;
+  lineEl.innerHTML = `<div class="gl-track">${dots}</div><div class="gl-text">${behind.length ? `<b class="late">${esc(behindNames(behind.map(p => name(p.riderId))))} ${(gap / 1609.344).toFixed(1)} mi behind</b>` : `Group spread ${fmtDistShort(tail)}`}${behind.length ? '' : `<span>Leader: ${esc(name(sorted[sorted.length - 1].riderId))}</span>`}</div>`;
   lineEl.hidden = false;
   if (behind.length && Date.now() - behindSpokenAt > 10 * 60e3) {
     behindSpokenAt = Date.now();
@@ -1488,7 +1501,7 @@ function trackGeo(): FeatureCollection {
   const t = state.recording;
   return { type: 'FeatureCollection', features: t && t.points.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: t.points.map(p => [p.lon, p.lat]) } }] : [] };
 }
-function refreshTrack() { (map.getSource('track') as GeoJSONSource | undefined)?.setData(trackGeo()); }
+function refreshTrack() { (map.getSource('track') as GeoJSONSource | undefined)?.setData(trackGeo()); drawElevLine(); }
 
 // ---------------------------------------------------------------- heading arrows and the compass bar
 /** A blue pointer drawn just outside a rider's dot, pointing up (the map rotates it to their heading). */
@@ -1592,7 +1605,7 @@ function onPosition(p: GeolocationPosition) {
   if (state.recording) {
     const pt: Pt = { lat: c.latitude, lon: c.longitude, t: p.timestamp, alt: c.altitude ?? undefined };
     const last = state.recording.points[state.recording.points.length - 1];
-    if (c.accuracy <= 50 && shouldKeep(last, pt)) { state.recording.points.push(pt); persistTracks(); refreshTrack(); }
+    if (c.accuracy <= 50 && shouldKeep(last, pt)) { state.recording.points.push(pt); store.saveTracks(state.tracks); refreshTrack(); }
   }
   renderChips();
   if (state.tab === 'ride' && !state.scrubbing) renderPane();
@@ -1990,6 +2003,7 @@ function setScrub(i: number | null, pan = false) {
   if (pan && !map.getBounds().contains(ll)) { state.follow = false; $('#btn-center').classList.remove('active'); map.easeTo({ center: ll, duration: 300 }); }
 }
 function afterRidePane() {
+  drawElevLine();
   (map.getSource('viewride') as GeoJSONSource | undefined)?.setData(viewRideGeo());
   if (state.tab !== 'ride' || !shownProfile) { scrubMarker.remove(); return; }
   if (state.scrubI != null) setScrub(state.scrubI);
@@ -2197,7 +2211,7 @@ function setPanel(open: boolean) {
   $('#app').classList.toggle('collapsed', !open);
   $('#panel-toggle').setAttribute('aria-expanded', String(open));
   store.set('panelOpen', open);
-  requestAnimationFrame(() => map.resize());
+  requestAnimationFrame(() => { map.resize(); drawElevLine(); });
 }
 $('#app').classList.toggle('collapsed', !store.get('panelOpen', false));
 // iPhone Home Screen app (iOS 26): the page is laid out shorter than the screen, leaving an empty strip under the tabs.
@@ -2384,6 +2398,7 @@ function paneChange(e: Event) {
   if (t.dataset.set === 'rigMarks') { state.rigMarks = t.checked; store.set('rigMarks', t.checked); applyRigMarks(); renderPane(); }
   if (t.dataset.set === 'mvum') { state.mvum = t.checked; store.set('mvumImage', t.checked); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', t.checked ? 'visible' : 'none'); }
   if (t.dataset.set === 'myRides') { state.myRides = t.checked; store.set('myRides', t.checked); applyMyRides(); }
+  if (t.dataset.set === 'elevLine') { state.elevLine = t.checked; store.set('elevLine', t.checked); drawElevLine(); }
   if (t.dataset.set === 'groupLine') { state.groupLine = t.checked; store.set('groupLine', t.checked); drawGroupLine(); }
   if (t.dataset.set === 'compass') { state.compass = t.checked; store.set('compass', t.checked); drawHeading(); }
   if (t.dataset.set === 'keepAwake') { state.keepAwake = t.checked; store.set('keepAwake', t.checked); void applyWakeLock(); }
@@ -2552,7 +2567,7 @@ $('#btn-center').classList.add('active');
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state, chat, riderBubble, setChatOpen, drawHeading, drawRiders, updateRideMode, headsUp, drawSpots, renderMapChat, startGetOut, updateGuide, getGo: () => goRoute, trailLines, go: { loadTrailLines, buildGraph, trailRoute } } });
 // ---------------------------------------------------------------- account backup (pins, rides, settings, photos)
 // Settings that follow the rider between phones (map position, panel and install prompts stay per phone).
-const SYNCED_SETTINGS = ['groupLine', 'myRides', 'theme', 'compass', 'headingUp', 'readAloud', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
+const SYNCED_SETTINGS = ['groupLine', 'myRides', 'elevLine', 'theme', 'compass', 'headingUp', 'readAloud', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
 function applySettings(keys: string[]) {
   for (const k of keys) {
     if (k === 'base') { const b = store.get<BaseMapId>('base', 'topo'); if (b !== state.base && b in BASE_MAPS) setBase(b); }
@@ -2561,6 +2576,7 @@ function applySettings(keys: string[]) {
     if (k === 'rigMarks') { state.rigMarks = store.get('rigMarks', true); applyRigMarks(); }
     if (k === 'mvumImage') { state.mvum = store.get('mvumImage', false); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', state.mvum ? 'visible' : 'none'); }
     if (k === 'theme') { state.theme = store.get('theme', 'auto'); applyTheme(); }
+    if (k === 'elevLine') { state.elevLine = store.get('elevLine', true); drawElevLine(); }
     if (k === 'myRides') { state.myRides = store.get('myRides', true); applyMyRides(); }
     if (k === 'compass') { state.compass = store.get('compass', true); drawHeading(); }
     if (k === 'keepAwake') { state.keepAwake = store.get('keepAwake', true); void applyWakeLock(); }
@@ -2672,3 +2688,52 @@ function fitFabs() {
 new ResizeObserver(() => fitFabs()).observe($('#mapwrap'));
 new MutationObserver(() => fitFabs()).observe($('#mapwrap'), { attributes: true, attributeFilter: ['class'] });
 fitFabs();
+
+// ---------------------------------------------------------------- elevation strip on the map
+// The ride being recorded (live), or the ride you picked, as a slim elevation chart over the map.
+// Drag along it to follow the ride on the map; tap the words to open the Ride tab.
+function elevRide(): Track | null {
+  if (!state.elevLine) return null;
+  if (state.recording && !state.viewRide) return state.recording;
+  return state.viewRide ? state.tracks.find(t => t.id === state.viewRide && t.points.length > 1) ?? null : null;
+}
+function drawElevLine() {
+  const t = elevRide();
+  // Hidden while the Ride tab (with the full chart) is open.
+  if (!t || (state.tab === 'ride' && !$('#app').classList.contains('collapsed'))) { elevEl.hidden = true; elevAt = null; return; }
+  // While recording, rebuild at most every 5 s (new GPS points arrive every second).
+  if (elevCache?.id === t.id && elevCache.n !== t.points.length && t === state.recording && performance.now() - elevDrawnAt < 5000) {
+    if (!elevTimer) elevTimer = window.setTimeout(() => { elevTimer = 0; drawElevLine(); }, 5000);
+    return;
+  }
+  if (elevCache?.id !== t.id || elevCache.n !== t.points.length) { elevCache = { id: t.id, n: t.points.length, pr: buildProfile(t.points) }; if (!elevDrag) elevAt = null; }
+  elevDrawnAt = performance.now();
+  const pr = elevCache.pr, live = t === state.recording;
+  if (!pr) { elevEl.hidden = !live; elevEl.innerHTML = '<div class="el-text"><b>Recording</b><span>Elevation builds as you ride</span></div>'; return; }
+  // Where to put the dot: where you dragged; else the end of a live ride; else your spot if you're on the ride.
+  let at = elevAt;
+  if (at == null && live) at = pr.d.length - 1;
+  if (at == null && state.pos) { const i = indexNear(pr, state.pos.lat, state.pos.lon); if (distanceM(state.pos, { lat: pr.lat[i], lon: pr.lon[i] }) < 60) at = i; }
+  const info = at == null ? `${(pr.total / MI).toFixed(1)} mi · ▲${Math.round(pr.climb * FT).toLocaleString()} ft`
+    : `${fmtFt(pr.e[at])} <span class="el-g" style="--c:${GRADES.find(g => Math.abs(pr.g[at!]) < g.max)!.color}">${pr.g[at] > 0.5 ? '▲' : pr.g[at] < -0.5 ? '▼' : ''}${Math.abs(Math.round(pr.g[at]))}%</span> · ${(pr.d[at] / MI).toFixed(2)} mi`;
+  elevEl.innerHTML = `${miniProfileSvg(pr, at)}<div class="el-text"><b data-elopen>${live ? '● Recording' : esc(t.name)}</b><span data-elopen>${info}</span>${live ? '' : `<button class="el-x" data-elclose aria-label="Hide this ride's elevation">${ICONS.x}</button>`}</div>`;
+  elevEl.hidden = false;
+}
+function elevFrom(e: PointerEvent) {
+  const pr = elevCache?.pr, svg = elevEl.querySelector('svg'); if (!pr || !svg) return;
+  const r = svg.getBoundingClientRect();
+  elevAt = indexAt(pr, Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * pr.total);
+  scrubMarker.setLngLat([pr.lon[elevAt], pr.lat[elevAt]]); if (!scrubEl.isConnected) scrubMarker.addTo(map);
+  drawElevLine();
+}
+elevEl.addEventListener('pointerdown', e => {
+  if (!(e.target as Element).closest('svg')) return;
+  elevDrag = true; elevEl.setPointerCapture(e.pointerId); state.follow = false; $('#btn-center').classList.remove('active'); elevFrom(e);
+});
+elevEl.addEventListener('pointermove', e => { if (elevDrag) elevFrom(e); });
+for (const ev of ['pointerup', 'pointercancel'] as const) elevEl.addEventListener(ev, () => { elevDrag = false; });
+elevEl.addEventListener('click', e => {
+  const b = e.target as Element;
+  if (b.closest('[data-elclose]')) { state.viewRide = null; state.scrubI = null; elevAt = null; scrubMarker.remove(); afterRidePane(); if (state.tab === 'ride') renderPane(); return; }
+  if (b.closest('[data-elopen]')) { const t = elevRide(); if (t && t !== state.recording) openRide(t.id); else { state.tab = 'ride'; setPanel(true); render(); } }
+});

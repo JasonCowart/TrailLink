@@ -139,3 +139,25 @@ export function scrubXY(pr: Profile, i: number): { x: number; y: number } {
 /** Distance along the ride for an x position in SVG units. */
 export const distAtX = (pr: Profile, sx: number) => Math.max(0, Math.min(1, (sx - X0) / (X1 - X0))) * pr.total;
 export { FT, MI };
+
+/** A slim elevation chart for the strip on the map: no axes, shaded by steepness, a dot at point `at`. */
+export const MW = 300, MH = 40;
+export function miniProfileSvg(pr: Profile, at: number | null): string {
+  const lo = pr.low, hi = Math.max(pr.high, pr.low + 6); // at least ~20 ft of range, so flat rides look flat
+  const x = (m: number) => (m / Math.max(1, pr.total)) * MW;
+  const y = (e: number) => MH - 3 - ((e - lo) / (hi - lo)) * (MH - 8);
+  const step = Math.max(1, Math.floor(pr.d.length / 150));
+  const idx: number[] = []; for (let i = 0; i < pr.d.length; i += step) idx.push(i);
+  if (idx[idx.length - 1] !== pr.d.length - 1) idx.push(pr.d.length - 1);
+  let fills = '';
+  for (let k = 1; k < idx.length;) {
+    const c = band(pr.g[idx[k]]).color; let end = k;
+    while (end + 1 < idx.length && band(pr.g[idx[end + 1]]).color === c) end++;
+    const seg = idx.slice(k - 1, end + 1);
+    fills += `<polygon points="${x(pr.d[seg[0]]).toFixed(1)},${MH} ${seg.map(i => `${x(pr.d[i]).toFixed(1)},${y(pr.e[i]).toFixed(1)}`).join(' ')} ${x(pr.d[seg[seg.length - 1]]).toFixed(1)},${MH}" fill="${c}" fill-opacity=".55"/>`;
+    k = end + 1;
+  }
+  const line = idx.map(i => `${x(pr.d[i]).toFixed(1)},${y(pr.e[i]).toFixed(1)}`).join(' ');
+  const dot = at == null ? '' : `<line x1="${x(pr.d[at]).toFixed(1)}" x2="${x(pr.d[at]).toFixed(1)}" y1="0" y2="${MH}" class="el-cur"/><circle cx="${x(pr.d[at]).toFixed(1)}" cy="${y(pr.e[at]).toFixed(1)}" r="4.5" class="el-dot"/>`;
+  return `<svg class="el-svg" viewBox="0 0 ${MW} ${MH}" preserveAspectRatio="none" aria-hidden="true">${fills}<polyline points="${line}" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>${dot}</svg>`;
+}

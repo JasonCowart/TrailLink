@@ -22,6 +22,7 @@ const ICONS = {
   move: ico('<path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>'),
   camera: ico('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
   x: ico('<path d="M6 6l12 12M18 6 6 18"/>'),
+  chat: ico('<path d="M4 5h16v11H9l-5 4z"/>'),
   send: ico('<path d="M4 12l16-8-6 16-2.5-6.5z"/><path d="M11.5 13.5L20 4"/>'),
   bell: ico('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>'),
   download: ico('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
@@ -485,7 +486,8 @@ function groupHtml(compact: boolean): string {
     <label class="tg"><span><b>Share my location</b><br><span class="quiet">${community.sharing ? 'The group can see where you are.' : 'Off: the group can\'t see you.'}</span></span>
       <input type="checkbox" data-set="sharing" ${community.sharing ? 'checked' : ''} ${state.groupBusy ? 'disabled' : ''}></label>
     ${err}
-    ${chatHtml(g.id, false)}
+    ${compact ? '' : `<div class="btns"><button data-openchat>${inl(ICONS.chat)} Group chat${chat.unread(g.id) ? ` (${chat.unread(g.id)} new)` : ''}</button></div>
+    ${chat.pushSupported ? `<label class="tg small"><span>${inl(ICONS.bell, 16)} Notify me of new messages</span><input type="checkbox" data-set="pushOn" ${chat.pushOn ? 'checked' : ''}></label>` : ''}`}
     <p class="quiet" style="margin:12px 0 4px"><b>Riders (${members.length})</b> · ${sharingCount} sharing${community.groupUpdated ? ` · updated ${ago(community.groupUpdated)}` : ''}${navigator.onLine ? '' : ' · no signal'}</p>
     ${members.map(memberRow).join('') || '<p class="quiet">Loading…</p>'}
     <div class="btns">${compact ? '' : '<button data-act="grouprefresh">Refresh</button>'}<button class="danger" data-act="groupleave">Leave group</button></div>
@@ -510,7 +512,7 @@ function chatHtml(groupId: string, readonly: boolean): string {
     <form id="chatform" class="chatform"><input name="msg" maxlength="500" autocomplete="off" enterkeyhint="send" placeholder="Message the group">
       <button type="button" class="ibtn" data-chatloc aria-label="Send my location" title="Send my location">${ICONS.pin}</button>
       <button class="ibtn sendbtn" aria-label="Send">${ICONS.send}</button></form>
-    ${chat.pushSupported ? `<label class="tg small"><span>${inl(ICONS.bell, 16)} Notify me of new messages</span><input type="checkbox" data-set="pushOn" ${chat.pushOn ? 'checked' : ''}></label>` : ''}`}</div>`;
+    `}</div>`;
 }
 function rideLogHtml(): string {
   const past = chat.log.filter(l => l.id !== community.group?.id);
@@ -529,17 +531,75 @@ function updateUnread() {
   const n = chat.unread(community.group?.id);
   for (const el of [document.querySelector('#tabs button[data-tab="group"]'), $('#btn-riders')]) if (el) { if (n) el.setAttribute('data-unread', n > 9 ? '9+' : String(n)); else el.removeAttribute('data-unread'); }
 }
-const chatViewOpen = () => (state.tab === 'group' && !$('#app').classList.contains('collapsed')) || (state.panel === 'riders' && !$('#sheet').hidden);
+// ---- Chat on the map: a slim pill between SOS and Report shows the latest message; tap it for a short drawer
+// over the bottom of the map (the map stays visible and usable above it). New messages also pop up as a speech
+// bubble over the sender's dot on the map for a few seconds.
+const chatPill = Object.assign(document.createElement('button'), { id: 'chatpill', hidden: true });
+chatPill.setAttribute('aria-label', 'Group chat');
+const drawer = Object.assign(document.createElement('section'), { id: 'chatdrawer', hidden: true });
+drawer.setAttribute('aria-label', 'Group chat');
+drawer.innerHTML = `<div class="cdhead"><b id="cdtitle"></b><span class="grow"></span>
+    <button class="ibtn" id="cdbell" aria-label="Notifications for new messages" title="Notifications">${ICONS.bell}</button>
+    <button class="ibtn" id="cdclose" aria-label="Close chat">${ICONS.chevDown}</button></div>
+  <div class="chat" id="cdlist"></div>
+  <div class="quickrow">${QUICK.map(q => `<button class="qchip${q === 'Need help' ? ' urgent' : ''}" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+  <form id="chatform" class="chatform"><input name="msg" maxlength="500" autocomplete="off" enterkeyhint="send" placeholder="Message the group">
+    <button type="button" class="ibtn" data-chatloc aria-label="Send my location" title="Send my location">${ICONS.pin}</button>
+    <button class="ibtn sendbtn" aria-label="Send">${ICONS.send}</button></form>`;
+$('#mapwrap').append(chatPill, drawer);
+let chatOpen = false;
+const chatViewOpen = () => chatOpen;
+function renderMapChat() {
+  const g = community.signedIn ? community.group : null;
+  if (!g) { chatPill.hidden = true; if (chatOpen) setChatOpen(false); return; }
+  const msgs = chat.thread(g.id), last = msgs[msgs.length - 1], n = chat.unread(g.id);
+  chatPill.hidden = chatOpen;
+  chatPill.classList.toggle('unread', n > 0);
+  chatPill.innerHTML = `${ICONS.chat}<span class="cptext">${last ? `<b>${last.riderId === community.uid ? 'You' : esc(last.by)}:</b> ${last.kind === 'location' ? 'shared a location' : esc(last.body)}` : `Chat with ${esc(g.name)}`}</span>${n ? `<i class="cpcount">${n > 9 ? '9+' : n}</i>` : ''}`;
+  if (!chatOpen) return;
+  $('#cdtitle').textContent = g.name;
+  $('#cdbell').classList.toggle('on', chat.pushOn); $('#cdbell').hidden = !chat.pushSupported;
+  const list = $('#cdlist'), atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+  list.innerHTML = msgs.length ? msgs.map(msgHtml).join('') : '<p class="quiet chatempty">No messages yet. Tap a quick message or type one.</p>';
+  if (atBottom || list.dataset.fresh !== '1') { list.scrollTop = list.scrollHeight; list.dataset.fresh = '1'; }
+  chat.markRead(g.id);
+}
+function setChatOpen(open: boolean) {
+  chatOpen = open && !!community.group;
+  drawer.hidden = !chatOpen; $('#mapwrap').classList.toggle('chatopen', chatOpen);
+  $('#cdlist').dataset.fresh = '';
+  renderMapChat(); updateUnread();
+  if (chatOpen) { void chat.refresh(); }
+}
+function freshPill() { chatPill.classList.remove('fresh'); void chatPill.offsetWidth; chatPill.classList.add('fresh'); }
+chatPill.addEventListener('click', () => setChatOpen(true));
+$('#cdclose').addEventListener('click', () => setChatOpen(false));
+$('#cdbell').addEventListener('click', () => {
+  (chat.pushOn ? chat.disablePush().then(() => toast('Notifications off.')) : chat.enablePush().then(() => toast('Notifications on for new group messages.')))
+    .catch((err: Error) => toast(err.message)).finally(renderMapChat);
+});
+drawer.addEventListener('submit', e => { e.preventDefault(); chatSubmit(e.target as HTMLFormElement); });
+/** A speech bubble over the sender's dot on the map for a few seconds. */
+function riderBubble(m: ChatMessage) {
+  const pos = m.kind === 'location' && m.lat != null ? { lat: m.lat, lon: m.lon! } : community.members.find(x => x.riderId === m.riderId)?.pos;
+  if (!pos) return;
+  const el = document.createElement('div'); el.className = 'rbubble';
+  el.innerHTML = `<b>${esc(m.by)}</b> ${m.kind === 'location' ? 'is here' : esc(m.body.length > 60 ? `${m.body.slice(0, 57)}…` : m.body)}`;
+  el.addEventListener('click', () => setChatOpen(true));
+  const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -20] }).setLngLat([pos.lon, pos.lat]).addTo(map);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => mk.remove(), 600); }, 12000);
+}
 chat.onChange = () => {
-  updateUnread();
+  updateUnread(); renderMapChat();
   if (typingIn('#pane') || typingIn('#sheet')) { afterChat(); return; }
   if (state.tab === 'group' && !state.detail) renderPane();
   if (state.panel === 'riders') refreshPanel();
   afterChat();
 };
-chat.onIncoming = m => { if (!chatViewOpen()) toast(`${m.by}: ${m.kind === 'location' ? 'shared their location' : m.body}`); };
+chat.onIncoming = m => { riderBubble(m); freshPill(); };
 const chatMarker = new maplibregl.Marker({ element: Object.assign(document.createElement('div'), { className: 'tapmark' }) });
 document.addEventListener('click', e => {
+  if ((e.target as HTMLElement).closest('[data-openchat]')) { if (state.panel) closeSheet(); setPanel(false); setChatOpen(true); return; }
   const b = (e.target as HTMLElement).closest<HTMLElement>('[data-quick],[data-chatloc],[data-chatgo],[data-chatlog]');
   if (!b) return;
   try {
@@ -549,7 +609,7 @@ document.addEventListener('click', e => {
   if (b.dataset.chatgo) {
     const m = Object.values(community.group ? [chat.thread(community.group.id)] : []).flat().find(x => x.id === b.dataset.chatgo)
       ?? chat.log.flatMap(l => chat.thread(l.id)).find(x => x.id === b.dataset.chatgo);
-    if (m?.lat != null) { chatMarker.setLngLat([m.lon!, m.lat]).addTo(map); state.follow = false; $('#btn-center').classList.remove('active'); map.flyTo({ center: [m.lon!, m.lat], zoom: Math.max(map.getZoom(), 15) }); if (state.panel) closeSheet(); }
+    if (m?.lat != null) { chatMarker.setLngLat([m.lon!, m.lat]).addTo(map); state.follow = false; $('#btn-center').classList.remove('active'); map.flyTo({ center: [m.lon!, m.lat], zoom: Math.max(map.getZoom(), 15), padding: { top: 0, left: 0, right: 0, bottom: chatOpen ? drawer.offsetHeight : 0 } }); if (state.panel) closeSheet(); }
   }
   if (b.dataset.chatlog) {
     const l = chat.log.find(x => x.id === b.dataset.chatlog); if (!l) return;
@@ -1833,7 +1893,7 @@ window.addEventListener('online', () => backup.schedule(1000));
 function updateGate() { $('#gate').hidden = community.trusted; }
 // Background updates re-draw the open tab, except while the rider is typing in it.
 const typingIn = (sel: string) => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && (a as HTMLInputElement).type !== 'checkbox' && !!a.closest(sel); };
-community.onChange = () => { updateGate(); backupOnSignIn(); refreshRiderTrails(); applyRigMarks(); drawRiders(); drawRemotePins(); drawPins(); refreshPopup(); if (['trails', 'garage', 'group', 'pins'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
+community.onChange = () => { updateGate(); backupOnSignIn(); renderMapChat(); updateUnread(); refreshRiderTrails(); applyRigMarks(); drawRiders(); drawRemotePins(); drawPins(); refreshPopup(); if (['trails', 'garage', 'group', 'pins'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
 updateGate();
 // Sign-in by emailed code: typed into this TrailLink, so it never jumps to another browser.
 let gateEmail = '';
@@ -1865,7 +1925,7 @@ setInterval(() => { if (document.visibilityState === 'visible' && community.grou
 window.addEventListener('online', () => { void chat.flush(); void chat.refresh(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void chat.refresh(); });
 // Opened from a message notification: go to the group.
-if (location.hash === '#group') { state.tab = 'group'; history.replaceState(null, '', location.pathname); setTimeout(() => { setPanel(true); render(); }, 0); }
+if (location.hash === '#group') { history.replaceState(null, '', location.pathname); setTimeout(() => setChatOpen(true), 800); }
 void community.init().then(() => { updateGate(); void community.refreshGroup().then(() => { void chat.refresh(); void chat.refreshLog(); }); }, updateGate);
 setInterval(() => { if (community.group) drawRiders(); }, 60_000); // keep 'x min ago' labels current
 // Riders' reports: check every minute while the app is open.

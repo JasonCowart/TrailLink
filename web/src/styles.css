@@ -525,3 +525,7 @@ html[data-theme="dark"] .tag { background: var(--sand); }
 html[data-theme="dark"] .gate-card { background: var(--paper); }
 html[data-theme="dark"] .msgsys { color: #7DDCA0; }
 html[data-theme="dark"] button.msgloc { background: rgba(14,165,233,.18); }
+
+/* Fixes (owner, 2026-11-27): "Need help" stays red in every theme; pop-up messages readable in dark mode */
+html .msg .msgtext.urgent, html .msg.mine .msgtext.urgent, html[data-theme="dark"] .msg.mine .msgtext.urgent { background: #EF4444; color: #fff; }
+html[data-theme="dark"] #toast { background: #2A312C; color: #F1F5F0; border: 1px solid #3D4640; box-shadow: 0 4px 16px rgba(0,0,0,.5); }

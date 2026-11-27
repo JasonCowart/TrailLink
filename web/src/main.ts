@@ -20,7 +20,15 @@ const ICONS = {
   move: ico('<path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>'),
   camera: ico('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
   x: ico('<path d="M6 6l12 12M18 6 6 18"/>'),
+  pin: ico('<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.5"/>'),
+  thumb: ico('<path d="M7 11v9H4v-9z"/><path d="M7 11l4-7c1.4 0 2.3 1.1 2 2.4L12.4 10H18a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 16.8 20H7"/>'),
+  check: ico('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/>'),
+  medal: ico('<path d="M12 2.8l7.5 4.3v8.6L12 20l-7.5-4.3V7.1z"/><path d="M12 7.8l1.3 2.7 2.9.4-2.1 2 .5 2.9-2.6-1.4-2.6 1.4.5-2.9-2.1-2 2.9-.4z"/>'),
+  chevUp: ico('<path d="M6 15l6-6 6 6"/>'),
+  chevDown: ico('<path d="M6 9l6 6 6-6"/>'),
 };
+/** A line icon sized to sit in a line of text or a button label. */
+const inl = (svg: string, size = 18) => svg.replace('width="20" height="20"', `width="${size}" height="${size}" class="inl"`);
 import { BADGE_COLORS as BADGE_TRAIL_COLORS, BADGE_ICONS, MILESTONES, badgeSvg, bbox as badgeBbox, coverage, earnedOnRide, rodeIn, type BadgeIcon, type BadgeTrail, type RiderStats } from './badges.ts';
 import { bearingDeg, compass, distanceM } from '../../src/core/geo.ts';
 
@@ -320,7 +328,7 @@ function basemapPanelHtml(): string {
       ${d ? `<div class="card"><b>Saving… ${d.done} of ${d.total}</b><div class="bar"><i style="width:${Math.round((d.done / Math.max(1, d.total)) * 100)}%"></i></div><div class="btns"><button data-act="cancel-dl">Cancel</button></div></div>`
           : `<div class="btns"><button class="primary" data-act="save-area">Save the area on screen</button></div>`}
       ${areas.map(a => `<div class="row"><div class="grow"><b>${esc(a.name)}</b><div class="quiet">Zoom ${a.minZ}–${a.maxZ} · ${a.tiles.toLocaleString()} pieces · ${new Date(a.savedAt).toLocaleDateString()}</div></div>
-        <button data-showarea="${a.id}">Show</button><button data-forget="${a.id}" aria-label="Remove from list">✕</button></div>`).join('')}
+        <button data-showarea="${a.id}">Show</button><button data-forget="${a.id}" aria-label="Remove from list" class="ibtn">${ICONS.x}</button></div>`).join('')}
       <p class="quiet" id="storage"></p>
       ${areas.length ? '<div class="btns"><button data-act="clear-tiles">Delete all saved maps</button></div>' : ''}
       <div class="btns"><button data-close>Done</button></div>`;
@@ -341,7 +349,7 @@ function garageHtml(): string {
   return `<h2>Your garage</h2>
     <p class="quiet">Your setup changes how hard a trail feels. Ratings record the rig you rode, and trails show a forecast for yours.</p>
     ${vs.map(v => { const sc = rigScore(v), on = v.id === active?.id, open = state.openVehicles.has(v.id); return `<div class="vehicle${on ? ' on' : ''}">
-      <button class="vhead" data-togglevehicle="${v.id}" aria-expanded="${open}">${badge(v.color)}<b>${esc(v.nickname)}</b>${on ? ' <span class="tag">Riding</span>' : ''}<span class="chev" aria-hidden="true">${open ? '▴' : '▾'}</span></button>
+      <button class="vhead" data-togglevehicle="${v.id}" aria-expanded="${open}">${badge(v.color)}<b>${esc(v.nickname)}</b>${on ? ' <span class="tag">Riding</span>' : ''}<span class="chev" aria-hidden="true">${open ? ICONS.chevUp : ICONS.chevDown}</span></button>
       ${open ? `<div class="vbody">
         ${vehicleTitle(v) !== v.nickname ? `<div><b>${esc(vehicleTitle(v).slice(v.nickname.length + 3))}</b></div>` : ''}
         <div class="quiet">${esc(vehicleSummary(v))}</div>
@@ -368,7 +376,7 @@ function vehicleForm(v?: Vehicle) {
       <fieldset class="colors"><legend>Badge color</legend>
         ${BADGE_COLORS.map(c => `<label class="swatch" style="--c:${c}" title="${c}"><input type="radio" name="color" value="${c}" ${(x.color ?? '').toUpperCase() === c ? 'checked' : ''}><span></span></label>`).join('')}
         <label class="swatch custom" title="Pick any color"><input type="radio" name="color" value="custom" ${x.color && !BADGE_COLORS.includes(x.color.toUpperCase()) ? 'checked' : ''}><input type="color" name="customColor" value="${x.color && !BADGE_COLORS.includes(x.color.toUpperCase()) ? x.color : '#E8501A'}" aria-label="Any color"></label>
-        <label class="swatch none" title="No badge"><input type="radio" name="color" value="" ${x.color ? '' : 'checked'}><span>✕</span></label>
+        <label class="swatch none" title="No badge"><input type="radio" name="color" value="" ${x.color ? '' : 'checked'}><span>${ICONS.x}</span></label>
       </fieldset>
       <label>Width<select name="widthIn">${opt(WIDTHS, x.widthIn)}</select></label>
       <div class="cols2">
@@ -576,7 +584,7 @@ function badgeRowHtml(tid?: string): string {
     const got = community.hasBadge(`trail:${t.id}`);
     return `<button class="badgerow" data-badgeinfo="trail:${t.id}">${badgeSvg(t.icon, t.color, 34, !got)}<span><b>Badge trail: ${esc(t.name)}</b><br><span class="quiet">${got ? 'You earned this badge' : 'Ride it with recording on to earn the badge'}</span></span></button>`;
   }
-  return community.isAdmin ? `<button class="small" data-makebadge="${esc(tid)}">🏅 Make this a badge trail</button>` : '';
+  return community.isAdmin ? `<button class="small" data-makebadge="${esc(tid)}">${inl(ICONS.medal)} Make this a badge trail</button>` : '';
 }
 /** Admin: turn the tapped trail into a badge trail (its shape comes from the map data on screen). */
 let badgeDraft: { id?: string; tids: string[]; geom: BadgeTrail['geom'] } | null = null;
@@ -637,7 +645,7 @@ function adminHtml(): string {
       : `<button data-role="${r.rider_id}" data-reviewer="${!r.is_reviewer}">${r.is_reviewer ? 'Remove reviewer' : 'Make reviewer'}</button>`;
     return `<div class="row"><div class="grow"><b>${esc(r.display_name ?? r.email)}</b> ${tags}
       <div class="quiet">${r.display_name ? `${esc(r.email)} · ` : ''}${info}</div></div>
-      ${btns}${me ? '' : `<button data-removerider="${esc(r.email)}" aria-label="Remove ${esc(r.display_name ?? r.email)}">✕</button>`}</div>`;
+      ${btns}${me ? '' : `<button data-removerider="${esc(r.email)}" aria-label="Remove ${esc(r.display_name ?? r.email)}" class="ibtn">${ICONS.x}</button>`}</div>`;
   };
   return `<h2>Riders <span class="tag">Admin</span></h2>
     <p class="quiet">Only people you approve here can sign in to TrailLink.</p>
@@ -854,8 +862,8 @@ function hazardStatus(p: SharedPin): string {
 }
 function voteButtons(p: SharedPin) {
   const v = community.myVotes[p.id];
-  return `<div class="btns"><button data-act2="pinvote" data-id="${p.id}" data-v="there" aria-pressed="${v === 'there'}" class="${v === 'there' ? 'on' : ''}">👍 Still there</button>
-    <button data-act2="pinvote" data-id="${p.id}" data-v="cleared" aria-pressed="${v === 'cleared'}" class="${v === 'cleared' ? 'on' : ''}">✅ Cleared</button></div>`;
+  return `<div class="btns"><button data-act2="pinvote" data-id="${p.id}" data-v="there" aria-pressed="${v === 'there'}" class="${v === 'there' ? 'on' : ''}">${inl(ICONS.thumb)} Still there</button>
+    <button data-act2="pinvote" data-id="${p.id}" data-v="cleared" aria-pressed="${v === 'cleared'}" class="${v === 'cleared' ? 'on' : ''}">${inl(ICONS.check)} Cleared</button></div>`;
 }
 /** Someone else's pin: who shared it, when, and (for hazards) still there / cleared. */
 function remotePinSheet(id: string) {
@@ -945,7 +953,7 @@ function reported(pin: Pin | null) {
   if (checkBadges()) return;
   sheet(`<h3 class="withicon">${pin.report ? reportIcon(pin.report, 36) : ''}${esc(pinTitle(pin))} pinned</h3>
     <p class="quiet">Add a photo or a note, or move the pin if it's not quite right.</p>
-    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, '📷 Add photo')}<button data-act2="pinnote" data-id="${pin.id}">Add note</button></div>
+    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, `${inl(ICONS.camera)} Add photo`)}<button data-act2="pinnote" data-id="${pin.id}">Add note</button></div>
     <div class="btns"><button data-act2="movepin" data-id="${pin.id}">Move pin</button><button data-act2="undopin" data-id="${pin.id}">Undo</button><button class="primary" data-close>Done</button></div>`);
 }
 
@@ -1062,7 +1070,7 @@ function pinSheet(pinId: string) {
     ${sharing}
     ${(pin.photos ?? []).map(ph => `<figure class="pinphoto"><img data-photo="${ph}" alt="Pin photo">
       <div class="btns"><button class="small" data-act2="savephoto" data-id="${ph}" data-t="${pin.t}">Save to Photos</button><button class="small" data-act2="unpinphoto" data-pin="${pin.id}" data-id="${ph}">Take off pin</button></div></figure>`).join('') || '<p class="quiet">No photos yet.</p>'}
-    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, '📷 Add photo')}<button data-act2="movepin" data-id="${pin.id}">Move pin</button><button class="primary" data-close>Done</button></div></div>`);
+    <div class="btns">${photoInput(`data-addphoto="${pin.id}"`, `${inl(ICONS.camera)} Add photo`)}<button data-act2="movepin" data-id="${pin.id}">Move pin</button><button class="primary" data-close>Done</button></div></div>`);
   hydratePhotos($('#sheet-body'));
 }
 
@@ -1132,7 +1140,7 @@ function renderChips() {
   $('#chips').innerHTML = [
     `<span class="chip ${state.online ? 'on' : 'off'}">${state.online ? 'Online' : 'Offline'}</span>`,
     `<span class="chip on">${p ? `GPS ±${p.acc} m` : 'GPS…'}</span>`,
-    state.recording ? '<span class="chip rec">● Recording</span>' : '',
+    state.recording ? '<span class="chip rec"><i class="recdot"></i>Recording</span>' : '',
   ].join('');
 }
 
@@ -1171,7 +1179,7 @@ const views: Record<Tab, () => string> = {
         ${rides.length ? `<select id="fromride" aria-label="Pick a recorded ride" style="flex:1 1 140px;min-height:48px;border-radius:14px;border:1px solid var(--line);padding:0 10px;background:var(--paper)"><option value="">From a recorded ride…</option>${rides.slice(0, 30).map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select>` : ''}</div>
       <h2>Your trails</h2>
       ${mine.length ? mine.map(t => { const l = levelOf(t.difficulty); return `<div class="row"><span class="dchip" style="--c:${l.color}">${t.difficulty}</span><div class="grow"><b>${esc(t.name)}</b><div class="quiet">${lengthMiles(t.coords).toFixed(1)} mi · by ${esc(t.createdBy)} · ${new Date(t.createdAt).toLocaleDateString()}</div></div>
-        <button data-showtrail="${t.id}">Show</button><button data-deltrail="${t.id}" aria-label="Delete ${esc(t.name)}">✕</button></div>`; }).join('') : '<p class="quiet">None yet.</p>'}
+        <button data-showtrail="${t.id}">Show</button><button data-deltrail="${t.id}" aria-label="Delete ${esc(t.name)}" class="ibtn">${ICONS.x}</button></div>`; }).join('') : '<p class="quiet">None yet.</p>'}
       <h2>Your ratings</h2>
       <p class="quiet">${rated ? `You've rated ${rated} trail${rated === 1 ? '' : 's'}.` : 'Tap any trail on the map and choose "Rate difficulty".'}</p>
       ${accountHtml()}`;
@@ -1188,8 +1196,8 @@ const views: Record<Tab, () => string> = {
     const p = state.pos;
     return `
       <h2>Drop a pin where you are</h2>
-      <div class="btns"><button class="primary" data-act="regroup">Regroup</button><button class="danger" data-act="report">Report…</button><button data-act="note">Note…</button>${photoInput('data-newphotopin', '📷 Photo')}</div>
-      <div class="btns"><button data-act="placepin">📍 Place a pin on the map</button></div>
+      <div class="btns"><button class="primary" data-act="regroup">Regroup</button><button class="danger" data-act="report">Report…</button><button data-act="note">Note…</button>${photoInput('data-newphotopin', `${inl(ICONS.camera)} Photo`)}</div>
+      <div class="btns"><button data-act="placepin">${inl(ICONS.pin)} Place a pin on the map</button></div>
       ${state.pins.length ? state.pins.map(pin => {
         const d = p ? `${(distanceM(p, pin) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(p, pin))}` : '';
         const ph = pin.photos ?? [];
@@ -1198,7 +1206,7 @@ const views: Record<Tab, () => string> = {
         const when = ago(new Date(pin.t).toISOString());
         // One compact line: icon · name (+ distance, time, sharing) · icon buttons.
         return `<div class="pinrow"><div class="pinline">${pinIcon(pin.kind, pin.report, 32)}
-          <button class="pinmain" data-openpin="${pin.id}"><b>${esc(pinTitle(pin))}</b><span class="quiet">${[d, when, ph.length ? `📷 ${ph.length} photo${ph.length === 1 ? '' : 's'}` : '', shareTag].filter(Boolean).join(' · ')}</span></button>
+          <button class="pinmain" data-openpin="${pin.id}"><b>${esc(pinTitle(pin))}</b><span class="quiet">${[d, when, ph.length ? `${inl(ICONS.camera, 14)} ${ph.length}` : '', shareTag].filter(Boolean).join(' · ')}</span></button>
           <span class="ibtns">
             <button class="ibtn" data-goto="${pin.id}" aria-label="Show ${esc(pinTitle(pin))} on the map" title="Show on map">${ICONS.target}</button>
             <button class="ibtn" data-movepin="${pin.id}" aria-label="Move ${esc(pinTitle(pin))}" title="Move">${ICONS.move}</button>
@@ -1239,7 +1247,7 @@ window.addEventListener('appinstalled', () => { $('#installbar')?.remove(); toas
 function showInstallBar() {
   if (standalone() || store.get('installDismissed', false) || $('#installbar')) return;
   $('#mapwrap').insertAdjacentHTML('beforeend', `<div id="installbar"><span><b>Hide the address bar</b>Add to Home Screen</span>
-    <button class="primary" data-install="go">${installEvent ? 'Install' : 'How'}</button><button data-install="no" aria-label="Not now">✕</button></div>`);
+    <button class="primary" data-install="go">${installEvent ? 'Install' : 'How'}</button><button data-install="no" aria-label="Not now" class="ibtn">${ICONS.x}</button></div>`);
 }
 function installHelp() {
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);

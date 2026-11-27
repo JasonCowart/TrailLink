@@ -267,3 +267,12 @@ button.pinmain span { font-weight: 500; font-size: 13px; }
 label.ibtn.filebtn { min-height: 0; }
 .pinrow .thumbs { padding: 0 0 8px 42px; }
 .pinrow .thumb { width: 52px; height: 52px; }
+
+/* Line icons inside text and button labels */
+svg.inl { vertical-align: -3px; margin-right: 2px; flex: none; }
+.quiet svg.inl { vertical-align: -2px; margin-right: 1px; }
+.vhead .chev svg { display: block; }
+#panel-toggle span { display: inline-flex; }
+.chip.rec .recdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #fff; margin-right: 6px; vertical-align: 1px; animation: recblink 1.2s ease-in-out infinite; }
+@keyframes recblink { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .chip.rec .recdot { animation: none; } }

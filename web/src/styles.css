@@ -612,3 +612,7 @@ html, body { touch-action: pan-x pan-y; }
 /* A small dot marks the exact spot at the note's pointed corner */
 button.spotmark { position: relative; overflow: visible; }
 button.spotmark::after { content: ''; position: absolute; left: -4px; bottom: -4px; width: 8px; height: 8px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px #0EA5E9, 0 1px 3px rgba(0,0,0,.4); }
+
+/* Compass spans the full width of the map; the map buttons start just below it (owner, 2026-11-27) */
+#compass { left: 8px; right: 8px; width: auto; transform: none; }
+.fabs { top: calc(var(--map-top) + 40px); }

@@ -8,7 +8,7 @@ import { VectorTile } from '@mapbox/vector-tile';
 import Pbf from 'pbf';
 
 export interface LL { lat: number; lon: number }
-export interface Route { coords: LL[]; length: number; via: 'trails' | 'track' | 'straight' }
+export interface Route { coords: LL[]; length: number; via: 'trails' | 'track' | 'straight' | 'mixed'; /** From this point on, no trail: straight line. */ straightFrom?: number }
 
 // ---------------------------------------------------------------- trail graph
 interface Graph { nodes: LL[]; adj: { to: number; w: number }[][] }
@@ -109,13 +109,23 @@ export function trailRoute(g: Graph, a: LL, b: LL): Route | null {
     const [d, v] = pop();
     if (d > dist[v]) continue;
     if (v === t.id) break;
+    if (d > 80000) break; // don't search beyond ~50 miles of trail
     for (const e of g.adj[v]) { const nd = d + e.w; if (nd < dist[e.to]) { dist[e.to] = nd; prev[e.to] = v; push(nd, e.to); } }
   }
-  if (!Number.isFinite(dist[t.id])) return null;
-  const path: LL[] = [];
-  for (let v = t.id; v >= 0; v = prev[v]) path.push(g.nodes[v]);
-  path.reverse();
-  return { coords: [a, ...path, b], length: s.d + dist[t.id] + t.d, via: 'trails' };
+  const walk = (end: number) => { const path: LL[] = []; for (let v = end; v >= 0; v = prev[v]) path.push(g.nodes[v]); return path.reverse(); };
+  if (Number.isFinite(dist[t.id])) return { coords: [a, ...walk(t.id), b], length: s.d + dist[t.id] + t.d, via: 'trails' };
+  // The trails here don't connect all the way (they often meet paved roads that aren't in the trail data). Go as far
+  // as the trails reach toward the destination, then straight from there, but only if that gets you meaningfully closer.
+  const direct = distanceM(a, b);
+  let best = -1, bestScore = Infinity, bestLeft = direct;
+  for (let v = 0; v < n; v++) {
+    if (!Number.isFinite(dist[v])) continue;
+    const left = distanceM(g.nodes[v], b), score = dist[v] + left * 1.5;
+    if (score < bestScore) { bestScore = score; best = v; bestLeft = left; }
+  }
+  if (best < 0 || bestLeft > direct * 0.7) return null;
+  const path = walk(best);
+  return { coords: [a, ...path, b], length: s.d + dist[best] + bestLeft, via: 'mixed', straightFrom: path.length };
 }
 
 /** Back along recorded tracks: from the point nearest you to the point nearest the destination (each within 300 m). */

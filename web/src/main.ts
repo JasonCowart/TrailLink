@@ -1082,7 +1082,13 @@ async function computeRoute(from: LL, to: LL): Promise<Route> {
   return best ?? { coords: [from, to], length: distanceM(from, to), via: 'straight' };
 }
 function routeGeo(): FeatureCollection {
-  return { type: 'FeatureCollection', features: goRoute ? [{ type: 'Feature', properties: { via: goRoute.via }, geometry: { type: 'LineString', coordinates: goRoute.coords.map(c => [c.lon, c.lat]) } }] : [] };
+  if (!goRoute) return { type: 'FeatureCollection', features: [] };
+  const c = goRoute.coords.map(p => [p.lon, p.lat]);
+  const cut = goRoute.via === 'straight' ? 0 : goRoute.straightFrom ?? c.length;
+  const parts: [string, number[][]][] = [];
+  if (cut > 1) parts.push(['trail', c.slice(0, cut + 1)]);
+  if (cut < c.length - 1) parts.push(['straight', c.slice(Math.max(0, cut))]);
+  return { type: 'FeatureCollection', features: parts.map(([via, coordinates]) => ({ type: 'Feature', properties: { via }, geometry: { type: 'LineString', coordinates } })) };
 }
 function drawRoute() {
   if (!map.getSource('goroute')) {
@@ -1100,7 +1106,7 @@ async function startGetOut(d: Dest, quiet = false) {
     goRoute = await computeRoute(state.pos, d.at); goIdx = 0; goRerouteAt = Date.now();
     drawRoute(); goFlag.setLngLat([d.at.lon, d.at.lat]).addTo(map);
     const mi = (goRoute.length / 1609.344).toFixed(1);
-    if (!quiet) speak(`Route to ${d.name}: ${mi} miles${goRoute.via === 'straight' ? ', straight line. No trail connects, so watch the terrain' : goRoute.via === 'track' ? ', back the way you came' : ''}.`, true);
+    if (!quiet) speak(`Route to ${d.name}: ${mi} miles${goRoute.via === 'straight' ? ', straight line. No trail connects, so watch the terrain' : goRoute.via === 'track' ? ', back the way you came' : goRoute.via === 'mixed' ? '. The trails don\'t connect all the way: the last part is a straight line, so look for a road' : ''}.`, true);
     state.follow = true; $('#btn-center').classList.add('active');
     map.easeTo({ center: [state.pos.lon, state.pos.lat], zoom: 15 });
     updateGuide();
@@ -1125,7 +1131,7 @@ function updateGuide() {
   const mph = Math.max(state.pos.speed ?? 0, 0) > 2 ? (state.pos.speed! * 2.23694) : 10;
   const mins = Math.max(1, Math.round((pr.remaining / 1609.344) / mph * 60));
   guideEl.innerHTML = `<span class="garrow" style="rotate:${turn.toFixed(0)}deg">${ICONS.arrowUp}</span>
-    <span class="gtext"><b>${(pr.remaining / 1609.344).toFixed(1)} mi · ~${mins} min</b><span>${esc(goDest.name)} · ${goRoute.via === 'trails' ? 'on trails' : goRoute.via === 'track' ? 'back the way you came' : 'straight line'}${pr.off > 40 ? ' · off route' : ''}</span></span>
+    <span class="gtext"><b>${(pr.remaining / 1609.344).toFixed(1)} mi · ~${mins} min</b><span>${esc(goDest.name)} · ${goRoute.via === 'trails' ? 'on trails' : goRoute.via === 'track' ? 'back the way you came' : goRoute.via === 'mixed' ? 'trails, then straight (dashed)' : 'straight line, no trail connects'}${pr.off > 40 ? ' · off route' : ''}</span></span>
     <button class="ibtn" data-act="getoutstop" aria-label="Stop route">${ICONS.x}</button>`;
   drawHeading();
 }

@@ -255,7 +255,7 @@ map.on('click', e => {
   }
   // Tapping one of your rides opens it in the Ride tab (chart, stats) and keeps it highlighted.
   const ride = state.myRides && map.getLayer('myrides-line') ? map.queryRenderedFeatures([[e.point.x - 12, e.point.y - 12], [e.point.x + 12, e.point.y + 12]], { layers: ['myrides-line'] })[0] : undefined;
-  if (ride?.properties.id) { openRide(String(ride.properties.id)); return; }
+  if (ride?.properties.id) { pickRide(String(ride.properties.id)); return; }
   const r = 14;
   const layers = [...(state.trails ? TRAIL_LAYERS.map(l => l.id) : []), 'rider-trails'].filter(id => map.getLayer(id) && id !== 'trails-labels' && id !== 'trails-casing');
   const hits = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers });
@@ -1928,6 +1928,13 @@ function myRidesGeo(): FeatureCollection {
 }
 function applyMyRides() { if (!state.myRides) { state.viewRide = null; state.scrubI = null; scrubMarker.remove(); } afterRidePane(); for (const id of ['myrides-casing', 'myrides-line']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', state.myRides ? 'visible' : 'none'); }
 function refreshMyRides() { (map.getSource('myrides') as GeoJSONSource | undefined)?.setData(myRidesGeo()); afterRidePane(); }
+/** Tapping a ride on the map: highlight it and show its elevation strip, without opening the panel. */
+function pickRide(id: string) {
+  state.viewRide = id; state.scrubI = null; scrubMarker.remove();
+  if (state.detail) { state.detail = false; tapMarker.remove(); }
+  popup.remove();
+  if (state.tab === 'ride' && !$('#app').classList.contains('collapsed')) renderPane(); else afterRidePane();
+}
 function openRide(id: string) {
   state.viewRide = id; state.scrubI = null; scrubMarker.remove();
   if (state.detail) { state.detail = false; tapMarker.remove(); }

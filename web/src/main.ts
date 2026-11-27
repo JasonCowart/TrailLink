@@ -971,7 +971,7 @@ document.addEventListener('click', e => {
   if (b.dataset.chatgo) {
     const m = Object.values(community.group ? [chat.thread(community.group.id)] : []).flat().find(x => x.id === b.dataset.chatgo)
       ?? chat.log.flatMap(l => chat.thread(l.id)).find(x => x.id === b.dataset.chatgo);
-    if (m?.lat != null) { chatMarker.setLngLat([m.lon!, m.lat]).addTo(map); state.follow = false; $('#btn-center').classList.remove('active'); map.flyTo({ center: [m.lon!, m.lat], zoom: Math.max(map.getZoom(), 15), padding: { top: 0, left: 0, right: 0, bottom: chatOpen ? drawer.offsetHeight : 0 } }); if (state.panel) closeSheet(); }
+    if (m?.lat != null) { chatMarker.setLngLat([m.lon!, m.lat]).addTo(map); state.follow = false; $('#btn-center').classList.remove('active'); map.flyTo({ center: [m.lon!, m.lat], zoom: Math.max(map.getZoom(), 15), padding: chatOpen && drawer.offsetWidth < $('#mapwrap').offsetWidth * 0.6 ? { top: 0, left: drawer.offsetWidth, right: 0, bottom: 0 } : { top: 0, left: 0, right: 0, bottom: chatOpen ? drawer.offsetHeight : 0 } }); if (state.panel) closeSheet(); }
   }
   if (b.dataset.chatlog) {
     const l = chat.log.find(x => x.id === b.dataset.chatlog); if (!l) return;

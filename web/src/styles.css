@@ -724,3 +724,11 @@ svg.profile .scrubdot { fill: #0EA5E9; stroke: #fff; stroke-width: 2.2; }
   #elevline .el-svg { height: 24px; }
   #elevline { padding: 4px 8px 3px; }
 }
+/* Phone sideways: the chat is a tall column on the left (more history), the map stays open on the right. */
+@media (orientation: landscape) and (max-height: 520px) {
+  #chatdrawer { right: auto; top: calc(var(--map-top) + 62px); bottom: 6px; height: auto; width: min(52%, 480px); }
+  #chatdrawer .quickrow { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  #mapwrap.chatopen .chips, #mapwrap.chatopen .maplibregl-ctrl-top-left, #mapwrap.chatopen .maplibregl-ctrl-bottom-left { display: none; }
+  #mapwrap.chatopen #btn-sos { left: calc(min(52%, 480px) + 22px); bottom: 26px; }
+  #mapwrap.chatopen #btn-report { bottom: 26px; }
+}

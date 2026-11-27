@@ -77,7 +77,7 @@ try {
   // Notifications: each new message makes the database call the push function, which answers with how many phones it reached.
   await new Promise(r => setTimeout(r, 4000));
   const calls = await sql(`select status_code, left(content, 80) as content from net._http_response order by created desc limit 3`);
-  check(calls.some(c => c.status_code === 200 && /"sent":/.test(c.content ?? '')), `database calls the push function on a new message (${calls.map(c => c.status_code).join(',')})`);
+  check(calls.some(c => c.status_code === 200 && /"sent":/.test(c.content ?? '') && !/no message/.test(c.content ?? '')), `push function reads the new message and its group (${calls.map(c => `${c.status_code} ${c.content}`).join(' | ')})`);
   const noSecret = await fetch(`${URL}/functions/v1/push`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message_id: randomUUID() }) });
   check(noSecret.status === 403, `push function refuses callers without the secret (HTTP ${noSecret.status})`);
 

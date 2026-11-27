@@ -113,7 +113,7 @@ try {
     const existing = (await call('GET', '/secrets')).map(x => x.name);
     const [{ configured }] = await sql(`select (to_regclass('private.push_config') is not null and exists (select 1 from private.push_config)) as configured`);
     if (!existing.includes('VAPID_PRIVATE_KEY') || !existing.includes('PUSH_HOOK_SECRET') || !configured) {
-      const webpush = (await import('web-push')).default;
+      const wp = await import('web-push'); const webpush = wp.default?.generateVAPIDKeys ? wp.default : wp;
       const keys = existing.includes('VAPID_PRIVATE_KEY') ? null : webpush.generateVAPIDKeys();
       const hook = randomBytes(24).toString('hex');
       const secrets = [{ name: 'PUSH_HOOK_SECRET', value: hook }, { name: 'VAPID_SUBJECT', value: 'https://jasoncowart.github.io/TrailLink/' }];

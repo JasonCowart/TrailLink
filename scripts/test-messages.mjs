@@ -109,6 +109,8 @@ try {
   const notAdmin = await fn(kim, { action: 'start', lat: 38.57, lon: -109.55 });
   const naBody = await notAdmin.text(); check(notAdmin.status === 403 && /admin/i.test(naBody), `test riders refused for a non-admin (HTTP ${notAdmin.status} ${naBody.slice(0, 80)})`);
   await sql(`update public.profiles set is_admin = true where id = '${maria.uid}'`);
+  const [{ adm }] = await sql(`select is_admin as adm from public.profiles where id = '${maria.uid}'`);
+  console.log(`  (admin flag set: ${adm})`);
   const tg = await rest(maria, 'rpc/create_group', { p_name: 'Test riders check' });
   const st = await fn(maria, { action: 'start', lat: 38.57, lon: -109.55 });
   check(st.ok, `admin starts test riders (HTTP ${st.status} ${st.ok ? '' : (await st.text()).slice(0, 120)})`);

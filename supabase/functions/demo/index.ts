@@ -36,7 +36,8 @@ Deno.serve(async req => {
   const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
   const { data: u } = await db.auth.getUser(token);
   if (!u?.user) return json({ error: 'Sign in first.' }, 401);
-  const { data: me } = await db.from('profiles').select('is_admin').eq('id', u.user.id).maybeSingle();
+  const { data: me, error: pe } = await db.from('profiles').select('is_admin').eq('id', u.user.id).maybeSingle();
+  if (pe) return json({ error: `Couldn't check admin: ${pe.message}` }, 500);
   if (!me?.is_admin) return json({ error: 'Only the admin can use test riders.' }, 403);
   const { action, lat, lon, seconds } = await req.json().catch(() => ({}));
   const { data: gm } = await db.from('group_members').select('group_id').eq('rider_id', u.user.id).limit(1);

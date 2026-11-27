@@ -1236,6 +1236,21 @@ function setPanel(open: boolean) {
   requestAnimationFrame(() => map.resize());
 }
 $('#app').classList.toggle('collapsed', !store.get('panelOpen', false));
+// iPhone Home Screen app bug: after the keyboard closes, iOS can leave the app shorter than the screen (a dead band
+// at the bottom) until the app is restarted. Hiding and re-showing the app makes iOS measure the screen again.
+const tallest = new Map<number, number>(); // per screen width, so turning the phone doesn't count as shrinking
+const noteHeight = () => tallest.set(innerWidth, Math.max(tallest.get(innerWidth) ?? 0, innerHeight));
+noteHeight();
+addEventListener('resize', noteHeight);
+function remeasure() {
+  if ((tallest.get(innerWidth) ?? innerHeight) - innerHeight <= 4) return;
+  const app = $('#app'), pane = $('#pane'), top = pane?.scrollTop ?? 0;
+  app.style.display = 'none'; void app.offsetHeight; app.style.display = '';
+  if (pane) pane.scrollTop = top;
+  requestAnimationFrame(() => map.resize());
+}
+document.addEventListener('focusout', () => setTimeout(remeasure, 150));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(remeasure, 150); });
 $('#panel-toggle').addEventListener('click', () => setPanel(panelCollapsed()));
 
 // ---------------------------------------------------------------- full screen: a browser always shows its address bar;

@@ -77,8 +77,9 @@ Deno.serve(async req => {
     return json({ ok: true, running: true, inSeconds: wait });
   }
 
-  // tick: move, answer the admin, and chat now and then.
+  // tick: move, mark the chat seen, answer the admin, and chat now and then.
   await moveAll();
+  await db.from('group_reads').upsert(BOTS.map(b => ({ group_id: group, rider_id: b.id, seen_at: new Date().toISOString() })), { onConflict: 'group_id,rider_id' });
   const { data: recent } = await db.from('group_messages').select('id,rider_id,body,reply_to,created_at').eq('group_id', group).in('kind', ['text', 'quick', 'location']).order('created_at', { ascending: false }).limit(10);
   // A test rider's help alert clears itself after about 90 s.
   const { data: helps } = await db.from('group_messages').select('id,rider_id,created_at').eq('group_id', group).eq('kind', 'help').in('rider_id', BOTS.map(b => b.id)).order('created_at', { ascending: false }).limit(3);

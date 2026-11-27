@@ -26,6 +26,8 @@ do $$ begin
     raise exception 'sent a message as someone else';
   exception when insufficient_privilege then null; end;
 end $$;
+-- Kim marks the chat seen; Maria (in the group) sees it; Jason can't mark a group he's not in.
+insert into group_reads (group_id) values ((select id from cr)) on conflict (group_id, rider_id) do update set seen_at = now();
 -- Jason can't read or post.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
 do $$ begin
@@ -35,10 +37,14 @@ do $$ begin
     raise exception 'outsider posted to the group';
   exception when insufficient_privilege then null; end;
 end $$;
+do $$ begin
+  begin insert into group_reads (group_id) values ((select id from cr)); raise exception 'outsider marked a group seen'; exception when insufficient_privilege then null; end;
+end $$;
 -- Maria reads both. Then everyone leaves: the group is gone, but the ride log stays readable to its riders.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
 do $$ begin
   if (select count(*) from group_messages where group_id = (select id from cr)) <> 5 then raise exception 'member cannot read messages'; end if;
+  if (select count(*) from group_reads where group_id = (select id from cr)) <> 1 then raise exception 'member cannot see who has read the chat'; end if;
   if (select reply_to from group_messages where id = '10000000-0000-4000-8000-000000000003') <> '10000000-0000-4000-8000-000000000001' then raise exception 'reply link lost'; end if;
 end $$;
 select leave_group((select id from cr));

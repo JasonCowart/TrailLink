@@ -56,7 +56,7 @@ jobs:
         run: |
           npm install --no-save --silent web-push
           node scripts/supabase-admin.mjs push-setup
-          npx --yes supabase@latest functions deploy push --project-ref yxcyqbxzggpejldkmdqe --no-verify-jwt --use-api
+          npx --yes supabase@latest functions deploy push --remote=yxcyqbxzggpejldkmdqe --no-verify-jwt --use-api --yes
           curl -s https://yxcyqbxzggpejldkmdqe.supabase.co/functions/v1/push | head -c 60; echo
       - name: Live messaging test
         if: inputs.action == 'test-messages'

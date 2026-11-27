@@ -25,10 +25,10 @@ alter table public.invites enable row level security;
 revoke all on public.invites from anon, authenticated;
 
 -- Riders who signed up before the invite list existed stay approved.
-insert into public.invites (email) select lower(email) from auth.users where email is not null on conflict do nothing;
+insert into public.invites (email) select lower(email) from auth.users where email is not null and email not like '%@test-riders.traillink.invalid' on conflict do nothing;
 -- The project owner (first account) is the first admin.
 update public.profiles set is_admin = true
- where id = (select id from auth.users order by created_at limit 1)
+ where id = (select id from auth.users where coalesce(email, '') not like '%@test-riders.traillink.invalid' order by created_at limit 1)
    and not exists (select 1 from public.profiles where is_admin);
 
 -- ---------------------------------------------------------------- invite check (Supabase "Before User Created" hook)

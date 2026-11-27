@@ -22,6 +22,7 @@ Deno.serve(async req => {
   const { message_id } = await req.json().catch(() => ({}));
   const { data: m } = await db.from('group_messages').select('id,group_id,rider_id,kind,body,reply_to').eq('id', message_id).maybeSingle();
   if (!m) return Response.json({ sent: 0, why: 'no message' });
+  if (m.kind === 'spotclear') return Response.json({ sent: 0, why: 'quiet' }); // taking a spot off the map isn't news
   const [{ data: who }, { data: group }, { data: members }] = await Promise.all([
     db.from('profiles').select('display_name').eq('id', m.rider_id).maybeSingle(),
     db.from('groups').select('name').eq('id', m.group_id).maybeSingle(),

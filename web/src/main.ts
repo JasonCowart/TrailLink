@@ -92,7 +92,9 @@ const community = new OnlineCommunity();
 const $ = <T extends HTMLElement = HTMLElement>(s: string) => document.querySelector(s) as T;
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
-(window as unknown as { __tlStarted?: boolean }).__tlStarted = true; // the page's load check (index.html) sees the app started
+(window as unknown as { __tlStarted?: boolean }).__tlStarted = true;
+// iPhone: stop the whole page from pinch-zooming (it made buttons huge and cut off); the map handles its own pinch.
+for (const ev of ['gesturestart', 'gesturechange']) document.addEventListener(ev, e => { if (!(e.target as HTMLElement).closest?.('.maplibregl-canvas-container')) e.preventDefault(); }, { passive: false }); // the page's load check (index.html) sees the app started
 // Dark mode check (defined before the map is created: the first map style depends on it).
 const darkQuery = matchMedia('(prefers-color-scheme: dark)');
 function isDark() { return state.theme === 'dark' || (state.theme === 'auto' && darkQuery.matches); }
@@ -575,6 +577,7 @@ function msgHtml(m: ChatMessage): string {
   const orig = m.replyTo ? chat.thread(m.groupId).find(x => x.id === m.replyTo) : undefined;
   const quote = m.replyTo ? `<button class="msgquote" data-jump="${m.replyTo}">${inl(ICONS.reply, 13)} ${orig ? `${orig.riderId === community.uid ? 'You' : esc(orig.by)}: ${esc(snippet(orig))}` : 'an earlier message'}</button>` : '';
   const when = m.pending ? 'waiting for signal' : timeOf(m.createdAt ?? m.sentAt);
+  if (m.kind === 'spotclear') { const o = chat.thread(m.groupId).find(x => x.id === m.replyTo); return `<div class="msgsys gray" data-msg="${m.id}">${mine ? 'You' : esc(m.by)} took “${esc(o?.body ?? 'a spot')}” off the map · ${when}</div>`; }
   if (m.kind === 'helpclear') return `<div class="msgsys" data-msg="${m.id}">${inl(ICONS.check, 14)} ${mine ? 'You are' : `${esc(m.by)} is`} OK now · ${when}</div>`;
   const body = m.kind === 'help'
     ? `<span class="msgtext urgent">Need help${m.lat != null ? '' : ''}</span>${m.lat != null ? `<button class="msgloc" data-chatgo="${m.id}">${inl(ICONS.pin, 16)} ${state.pos ? `${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))}` : 'Where'}</button>` : ''}`
@@ -664,7 +667,7 @@ function renderMapChat() {
   const last = (n ? [...msgs].reverse().find(m => m.riderId !== community.uid) : undefined) ?? msgs[msgs.length - 1];
   chatPill.hidden = chatOpen;
   chatPill.classList.toggle('unread', n > 0);
-  chatPill.innerHTML = `${ICONS.chat}<span class="cptext">${last ? `<b>${last.riderId === community.uid ? 'You' : esc(last.by)}:</b> ${last.kind === 'location' ? 'shared a location' : last.kind === 'help' ? 'needs help' : last.kind === 'helpclear' ? 'is OK now' : esc(last.body)}` : 'Group chat'}</span>${n ? `<i class="cpcount">${n > 9 ? '9+' : n}</i>` : ''}`;
+  chatPill.innerHTML = `${ICONS.chat}<span class="cptext">${last ? `<b>${last.riderId === community.uid ? 'You' : esc(last.by)}:</b> ${last.kind === 'location' ? 'shared a location' : last.kind === 'help' ? 'needs help' : last.kind === 'helpclear' ? 'is OK now' : last.kind === 'spotclear' ? 'removed a spot' : esc(last.body)}` : 'Group chat'}</span>${n ? `<i class="cpcount">${n > 9 ? '9+' : n}</i>` : ''}`;
   if (!chatOpen) return;
   $('#cdtitle').textContent = g.name;
   $('#cdbell').classList.toggle('on', chat.pushOn); $('#cdbell').hidden = !chat.pushSupported;
@@ -769,6 +772,7 @@ function speakMessage(m: ChatMessage) {
   const at = m.lat != null && state.pos ? `, ${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} miles ${({ N: 'north', NE: 'northeast', E: 'east', SE: 'southeast', S: 'south', SW: 'southwest', W: 'west', NW: 'northwest' } as Record<string, string>)[compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))] ?? ''}` : '';
   if (m.kind === 'help') speak(`Alert. ${who} needs help${at}.`, true);
   else if (m.kind === 'helpclear') speak(`${who} is OK now.`);
+  else if (m.kind === 'spotclear') return;
   else if (m.kind === 'location') speak(m.body ? `${who} marked a spot: ${m.body}${at}.` : `${who} shared a location${at}.`);
   else speak(`${who}: ${m.body}`);
 }
@@ -826,18 +830,36 @@ document.addEventListener('submit', e => {
   const f = e.target as HTMLFormElement; if (f.id !== 'spotform') return;
   e.preventDefault(); sendSpot(f.querySelector<HTMLInputElement>('input')!.value);
 }, true);
+/** Spots hidden on this phone only ("Hide on my map"). */
+const hiddenSpots = new Set<string>(store.get<string[]>('hiddenSpots', []));
+function spotCard(m: ChatMessage) {
+  const mine = m.riderId === community.uid;
+  const far = state.pos && m.lat != null ? ` · ${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))}` : '';
+  sheet(`<h3 class="withicon">${inl(ICONS.chat, 24)} ${esc(m.body)}</h3><p class="quiet">${mine ? 'You' : esc(m.by)} · ${ago(m.createdAt ?? m.sentAt)}${far}</p>
+    <div class="btns">${mine ? `<button class="danger" data-spotdel="${m.id}">Remove for everyone</button>` : `<button data-spothide="${m.id}">Hide on my map</button>`}<button data-spotchat="${m.id}">Show in chat</button></div>
+    <p class="quiet">Spot messages also disappear on their own after 12 hours.</p>`);
+}
+document.addEventListener('click', e => {
+  const t = e.target as HTMLElement;
+  const del = t.closest<HTMLElement>('[data-spotdel]'), hide = t.closest<HTMLElement>('[data-spothide]'), show = t.closest<HTMLElement>('[data-spotchat]');
+  if (del) { try { chat.send('spotclear', '', undefined, del.dataset.spotdel); toast('Removed from everyone\'s map.'); } catch (err) { toast((err as Error).message); } closeSheet(); drawSpots(); }
+  if (hide) { hiddenSpots.add(hide.dataset.spothide!); store.set('hiddenSpots', [...hiddenSpots].slice(-200)); closeSheet(); drawSpots(); toast('Hidden on your map.'); }
+  if (show) { closeSheet(); setChatOpen(true); }
+});
 /** Spots the group marked (last 12 hours) stay on the map as small labels. */
 const spotMarkers = new Map<string, maplibregl.Marker>();
 function drawSpots() {
   const g = community.signedIn ? community.group : null;
-  const spots = g ? chat.thread(g.id).filter(m => m.kind === 'location' && m.body && m.lat != null && Date.now() - Date.parse(m.createdAt ?? m.sentAt) < 12 * 3600e3) : [];
+  const t = g ? chat.thread(g.id) : [];
+  const cleared = new Set(t.filter(m => m.kind === 'spotclear').map(m => m.replyTo));
+  const spots = t.filter(m => m.kind === 'location' && m.body && m.lat != null && !cleared.has(m.id) && !hiddenSpots.has(m.id) && Date.now() - Date.parse(m.createdAt ?? m.sentAt) < 12 * 3600e3);
   const keep = new Set(spots.map(m => m.id));
   for (const [id, mk] of spotMarkers) if (!keep.has(id)) { mk.remove(); spotMarkers.delete(id); }
   for (const m of spots) {
     if (spotMarkers.has(m.id)) continue;
     const el = document.createElement('button'); el.className = 'spotmark';
     el.innerHTML = `${inl(ICONS.chat, 13)}<span>${esc(m.body.length > 26 ? `${m.body.slice(0, 24)}…` : m.body)}</span><i>${esc((m.riderId === community.uid ? 'You' : m.by).replace(/\s*\(test\)/, ''))}</i>`;
-    el.addEventListener('click', ev => { ev.stopPropagation(); setChatOpen(true); });
+    el.addEventListener('click', ev => { ev.stopPropagation(); spotCard(m); });
     spotMarkers.set(m.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([m.lon!, m.lat!]).addTo(map));
   }
 }
@@ -863,6 +885,7 @@ chat.onIncoming = m => {
   speakMessage(m);
   if (m.kind === 'help') { navigator.vibrate?.([300, 120, 300, 120, 600]); toast(`${m.by} needs help!`); drawHelp(); return; }
   if (m.kind === 'helpclear') { toast(`${m.by} is OK now.`); return; }
+  if (m.kind === 'spotclear') { drawSpots(); return; }
   riderBubble(m); freshPill();
   if (rideMode) headsUp(m);
 };

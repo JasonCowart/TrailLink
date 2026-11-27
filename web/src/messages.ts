@@ -7,7 +7,7 @@ import { SUPABASE_URL } from './config.ts';
 
 export interface ChatMessage {
   id: string; groupId: string; riderId: string; by: string;
-  kind: 'text' | 'quick' | 'location' | 'help' | 'helpclear'; body: string; lat?: number; lon?: number;
+  kind: 'text' | 'quick' | 'location' | 'help' | 'helpclear' | 'spotclear'; body: string; lat?: number; lon?: number;
   sentAt: string; createdAt?: string; pending?: boolean;
   /** The message this one answers (tap a message to reply to it). */
   replyTo?: string;
@@ -101,7 +101,7 @@ export class GroupChat {
     const g = this.c.group, me = this.c.uid;
     if (!g || !me) throw new Error('Join a ride group first.');
     const text = body.trim().slice(0, 500);
-    if (!text && kind !== 'location' && kind !== 'help') return;
+    if (!text && kind !== 'location' && kind !== 'help' && kind !== 'spotclear') return;
     this.waiting.push({ id: uuid(), groupId: g.id, riderId: me, by: 'You', kind, body: text, lat: at?.lat, lon: at?.lon, sentAt: new Date().toISOString(), pending: true, replyTo });
     this.save(); this.onChange();
     void this.flush();

@@ -64,6 +64,7 @@ begin
     from public.invites i
     full join auth.users u on lower(u.email) = i.email
     left join public.profiles p on p.id = u.id
+   where coalesce(u.email, '') not like '%@test-riders.traillink.invalid'
    order by u.created_at is null, coalesce(p.display_name, i.email, u.email::text);
 end $$;
 

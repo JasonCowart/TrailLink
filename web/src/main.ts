@@ -468,7 +468,7 @@ const ago = (iso: string) => {
   return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} hr ago` : `${Math.round(m / 1440)} d ago`;
 };
 const STALE_MIN = 10;
-const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?';
+const initials = (name: string) => name.replace(/\(.*?\)/g, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?';
 
 function ridersGeo(): FeatureCollection {
   const me = community.session?.user.id;
@@ -687,9 +687,11 @@ function drawHelp() {
     const at = helpSpot(h); if (!at || h.riderId === community.uid) continue;
     let mk = helpMarkers.get(h.id);
     if (!mk) {
-      const el = document.createElement('button'); el.className = 'helpmark'; el.innerHTML = `<i class="flash"></i><span>SOS</span><b>${esc(h.by)}</b>`;
+      const el = document.createElement('button'); el.className = 'helpmark';
+      el.innerHTML = `<i class="flash" aria-hidden="true"></i><span>${esc(initials(h.by))}</span><b>SOS · ${esc(h.by.replace(/\s*\(.*?\)/g, ''))}</b>`;
+      el.setAttribute('aria-label', `${h.by} needs help`);
       el.addEventListener('click', ev => { ev.stopPropagation(); setChatOpen(true); });
-      mk = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([at.lon, at.lat]).addTo(map); helpMarkers.set(h.id, mk);
+      mk = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([at.lon, at.lat]).addTo(map); helpMarkers.set(h.id, mk);
     } else mk.setLngLat([at.lon, at.lat]);
   }
 }
@@ -1105,7 +1107,8 @@ function drawHeading() {
     const marks: CompassMark[] = [];
     const me = state.pos;
     if (me) {
-      for (const m of community.members) if (m.pos && m.sharing && m.riderId !== community.uid) marks.push({ bearing: bearingDeg(me, m.pos), label: esc(initials(m.name)), kind: 'rider', title: `${esc(m.name)} · ${(distanceM(me, m.pos) / 1609.344).toFixed(1)} mi` });
+      const asking = new Set(chat.activeHelps(community.group?.id).map(h => h.riderId));
+      for (const m of community.members) if (m.pos && m.sharing && m.riderId !== community.uid && !asking.has(m.riderId)) marks.push({ bearing: bearingDeg(me, m.pos), label: esc(initials(m.name)), kind: 'rider', title: `${esc(m.name)} · ${(distanceM(me, m.pos) / 1609.344).toFixed(1)} mi` });
       for (const p of state.pins) if (p.kind === 'regroup') marks.push({ bearing: bearingDeg(me, p), label: '', kind: 'regroup', title: 'Regroup point' });
       for (const h of chat.activeHelps(community.group?.id)) { const at = h.riderId === community.uid ? null : helpSpot(h); if (at) marks.push({ bearing: bearingDeg(me, at), label: `SOS ${esc(initials(h.by))}`, kind: 'hazard', title: `${esc(h.by)} needs help` }); }
     }
@@ -1185,7 +1188,7 @@ function drawPins() {
     const old = pinMarkers.get(p.id);
     if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().dataset.key === key) continue; old.remove(); }
     const el = document.createElement('button');
-    const strobe = (p.kind === 'report' || p.kind === 'hazard') && (p.report ?? 'hazard') === 'hazard';
+    const strobe = false; // the strobe now marks a rider who asked for help
     el.className = `mpin ${p.kind}${strobe ? ' strobe' : ''}`;
     el.dataset.key = key;
     el.setAttribute('aria-label', pinTitle(p));
@@ -1265,7 +1268,7 @@ function drawRemotePins() {
     const old = remoteMarkers.get(p.id);
     if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().dataset.key === key) continue; old.remove(); }
     const el = document.createElement('button');
-    const strobe = REPORT_KINDS.has(p.kind) && (p.report ?? 'hazard') === 'hazard';
+    const strobe = false;
     el.className = `mpin ${p.kind} shared${strobe ? ' strobe' : ''}`;
     el.dataset.key = key;
     el.setAttribute('aria-label', `${sharedTitle(p)}, from ${p.by}`);

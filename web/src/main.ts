@@ -2193,7 +2193,7 @@ if ('serviceWorker' in navigator) {
 }
 $('#btn-center').classList.add('active');
 // Test hook: open the app with #debug to reach the map from automated browser tests.
-if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state, chat, riderBubble, setChatOpen, drawHeading, drawRiders } });
+if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state, chat, riderBubble, setChatOpen, drawHeading, drawRiders, updateRideMode, headsUp, drawSpots, renderMapChat } });
 // ---------------------------------------------------------------- account backup (pins, rides, settings, photos)
 // Settings that follow the rider between phones (map position, panel and install prompts stay per phone).
 const SYNCED_SETTINGS = ['theme', 'compass', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];

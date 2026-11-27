@@ -1477,10 +1477,10 @@ function drawHeading() {
     const me = state.pos;
     if (me) {
       const asking = new Set(chat.activeHelps(community.group?.id).map(h => h.riderId));
-      for (const m of community.members) if (m.pos && m.sharing && m.riderId !== community.uid && !asking.has(m.riderId)) marks.push({ bearing: bearingDeg(me, m.pos), label: esc(initials(m.name)), kind: 'rider', title: `${esc(m.name)} · ${(distanceM(me, m.pos) / 1609.344).toFixed(1)} mi` });
-      if (goDest) marks.push({ bearing: bearingDeg(me, goDest.at), label: '', kind: 'dest', title: goDest.name });
-      for (const p of state.pins) if (p.kind === 'regroup') marks.push({ bearing: bearingDeg(me, p), label: '', kind: 'regroup', title: 'Regroup point' });
-      for (const h of chat.activeHelps(community.group?.id)) { const at = h.riderId === community.uid ? null : helpSpot(h); if (at) marks.push({ bearing: bearingDeg(me, at), label: `SOS ${esc(initials(h.by))}`, kind: 'hazard', title: `${esc(h.by)} needs help` }); }
+      for (const m of community.members) if (m.pos && m.sharing && m.riderId !== community.uid && !asking.has(m.riderId)) marks.push({ bearing: bearingDeg(me, m.pos), meters: distanceM(me, m.pos), label: esc(initials(m.name)), kind: 'rider', title: `${esc(m.name)} · ${(distanceM(me, m.pos) / 1609.344).toFixed(1)} mi` });
+      if (goDest) marks.push({ bearing: bearingDeg(me, goDest.at), meters: distanceM(me, goDest.at), label: '', kind: 'dest', title: goDest.name });
+      for (const p of state.pins) if (p.kind === 'regroup') marks.push({ bearing: bearingDeg(me, p), meters: distanceM(me, p), label: '', kind: 'regroup', title: 'Regroup point' });
+      for (const h of chat.activeHelps(community.group?.id)) { const at = h.riderId === community.uid ? null : helpSpot(h); if (at) marks.push({ bearing: bearingDeg(me, at), meters: distanceM(me, at), label: `SOS ${esc(initials(h.by))}`, kind: 'hazard', title: `${esc(h.by)} needs help` }); }
     }
     compassEl.innerHTML = compassHtml(h.deg, h.source, marks, compassEl.clientWidth || 260, headingUp)
       + (h.source === 'map' && phoneCompass.needsPermission ? '<span class="chint">Tap for compass</span>' : '');

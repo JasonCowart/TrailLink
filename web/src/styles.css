@@ -642,3 +642,16 @@ button.spotmark::after { content: ''; position: absolute; left: -4px; bottom: -4
 #mapwrap.helpon .maplibregl-ctrl-top-left { top: calc(var(--map-top) + 152px); }
 /* Unread count on the chat bar: upright numbers (the earlier font rule was invalid, so it fell back to italics) */
 #chatpill .cpcount { font: 700 12px/20px system-ui, -apple-system, sans-serif; font-style: normal; }
+
+/* Compass rows, top to bottom: distance, marks, ticks + needle, letters/degrees, heading readout */
+#compass { height: 74px; }
+#compass .cdist { position: absolute; top: 1px; transform: translateX(-50%); font: 700 9px/1 system-ui, -apple-system, sans-serif; white-space: nowrap; color: #fff; }
+#compass .cdist.hazard { color: #FCA5A5; } #compass .cdist.dest { color: #86EFAC; } #compass .cdist.regroup { color: #FDBA74; }
+#compass .cm { top: 13px; }
+#compass .cm.regroup, #compass .cm.dest { top: 16px; }
+#compass .ctape::after, #compass .ct, #compass .cneedle { top: 32px; }
+#compass .cl { top: 43px; } #compass .cl.card { top: 42px; } #compass .cn { top: 44px; }
+.fabs, .chips, #toast, #guide, #headsup, #helpbanner { top: calc(var(--map-top) + 78px); }
+.maplibregl-ctrl-top-left { top: calc(var(--map-top) + 104px); }
+#mapwrap.helpon .chips, #mapwrap.helpon #toast, #mapwrap.helpon #guide { top: calc(var(--map-top) + 138px); }
+#mapwrap.helpon .maplibregl-ctrl-top-left { top: calc(var(--map-top) + 164px); }

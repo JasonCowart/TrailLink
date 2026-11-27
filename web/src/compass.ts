@@ -43,10 +43,15 @@ export class PhoneCompass {
   get live() { return this.heading != null && this.started; }
 }
 
+/** Short distance: feet under a tenth of a mile, then miles. */
+export function fmtDist(m: number): string {
+  const mi = m / 1609.344;
+  return mi < 0.1 ? `${Math.round(m * 3.28084 / 10) * 10} ft` : mi < 10 ? `${mi.toFixed(1)} mi` : `${Math.round(mi)} mi`;
+}
 const NAMES = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 export const cardinal = (deg: number) => NAMES[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
 
-export interface CompassMark { bearing: number; label: string; kind: 'rider' | 'regroup' | 'hazard' | 'dest'; color?: string; title?: string }
+export interface CompassMark { bearing: number; label: string; kind: 'rider' | 'regroup' | 'hazard' | 'dest'; color?: string; title?: string; /** Distance in meters, shown above the mark. */ meters?: number }
 
 /** The compass bar: 120° of view, ticks every 5°, letters every 45°, numbers every 15°, marks for riders and regroup points. */
 export function compassHtml(heading: number, source: HeadingSource, marks: CompassMark[], width: number, headingUp: boolean): string {
@@ -64,7 +69,8 @@ export function compassHtml(heading: number, source: HeadingSource, marks: Compa
     const off = Math.abs(d) > span / 2;
     const lo = width * 0.14, hi = width * 0.86; // inside the faded edges
     const x = Math.min(hi, Math.max(lo, off ? (d < 0 ? 0 : width) : d * ppd + half));
-    return `<span class="cm ${m.kind}${off ? ' edge' : ''}" style="left:${x.toFixed(1)}px${m.color ? `;--c:${m.color}` : ''}" title="${m.title ?? ''}">${off ? (d < 0 ? '◂' : '▸') : ''}${m.label}</span>`;
+    const dist = m.meters == null ? '' : `<span class="cdist ${m.kind}" style="left:${x.toFixed(1)}px">${fmtDist(m.meters)}</span>`;
+    return `${dist}<span class="cm ${m.kind}${off ? ' edge' : ''}" style="left:${x.toFixed(1)}px${m.color ? `;--c:${m.color}` : ''}" title="${m.title ?? ''}">${off ? (d < 0 ? '◂' : '▸') : ''}${m.label}</span>`;
   }).join('');
   const deg = Math.round(((heading % 360) + 360) % 360) % 360;
   return `<div class="ctape">${ticks}${pins}</div><div class="cneedle"></div>

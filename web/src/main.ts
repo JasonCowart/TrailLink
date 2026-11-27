@@ -84,6 +84,21 @@ const community = new OnlineCommunity();
 const $ = <T extends HTMLElement = HTMLElement>(s: string) => document.querySelector(s) as T;
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
+// Dark mode check (defined before the map is created: the first map style depends on it).
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+function isDark() { return state.theme === 'dark' || (state.theme === 'auto' && darkQuery.matches); }
+
+// If something breaks while the app starts, say so on screen instead of showing a blank app.
+function showFatal(msg: string) {
+  if (document.getElementById('fatal')) return;
+  const d = document.createElement('div'); d.id = 'fatal';
+  d.style.cssText = 'position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:99;background:#B91C1C;color:#fff;padding:10px 12px;border-radius:12px;font:600 13px/1.3 system-ui;box-shadow:0 4px 14px rgba(0,0,0,.4)';
+  d.textContent = `TrailLink hit a problem: ${msg}. Take a screenshot for Claude, then close and reopen the app.`;
+  document.body.append(d);
+}
+window.addEventListener('error', e => showFatal(e.message || 'unknown error'));
+window.addEventListener('unhandledrejection', e => { const m = String((e.reason as Error)?.message ?? e.reason ?? ''); if (/ReferenceError|TypeError|is not defined|Cannot read/i.test(m)) showFatal(m); });
+
 // ---------------------------------------------------------------- map
 const start = store.get<{ c: [number, number]; z: number }>('view', { c: [-105.0, 39.1], z: 9 }); // default: Colorado Front Range
 const map: MLMap = new maplibregl.Map({
@@ -95,11 +110,14 @@ const map: MLMap = new maplibregl.Map({
   maxPitch: 60,
 });
 map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'top-left');
+// If the dark street style can't load, fall back to the normal street map.
+map.on('error', e => {
+  const url = (e as { error?: { url?: string } }).error?.url ?? '';
+  if (url.includes('/styles/dark') && state.base === 'street') map.setStyle(STREET_STYLE_URL);
+});
 
 // ---------------------------------------------------------------- dark mode (app and map): Auto follows the phone
 type Theme = 'auto' | 'light' | 'dark';
-const darkQuery = matchMedia('(prefers-color-scheme: dark)');
-const isDark = () => state.theme === 'dark' || (state.theme === 'auto' && darkQuery.matches);
 function styleFor(id: BaseMapId) { return id === 'street' ? (isDark() ? STREET_STYLE_URL.replace('/liberty', '/dark') : STREET_STYLE_URL) : rasterStyle(id); }
 /** Night look for the raster base maps (works offline: it's the same saved tiles, drawn darker). */
 function applyMapTheme() {

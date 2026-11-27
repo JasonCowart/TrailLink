@@ -71,6 +71,7 @@ const state = {
   keepAwake: store.get('keepAwake', true),
   /** Ride shown in the elevation profile (null: the ride being recorded, else the latest ride). */
   compass: store.get('compass', true),
+  theme: store.get<'auto' | 'light' | 'dark'>('theme', 'auto'),
   viewRide: null as string | null,
   scrubI: null as number | null,
   scrubbing: false,
@@ -95,7 +96,29 @@ const map: MLMap = new maplibregl.Map({
 });
 map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'top-left');
 
-function styleFor(id: BaseMapId) { return id === 'street' ? STREET_STYLE_URL : rasterStyle(id); }
+// ---------------------------------------------------------------- dark mode (app and map): Auto follows the phone
+type Theme = 'auto' | 'light' | 'dark';
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+const isDark = () => state.theme === 'dark' || (state.theme === 'auto' && darkQuery.matches);
+function styleFor(id: BaseMapId) { return id === 'street' ? (isDark() ? STREET_STYLE_URL.replace('/liberty', '/dark') : STREET_STYLE_URL) : rasterStyle(id); }
+/** Night look for the raster base maps (works offline: it's the same saved tiles, drawn darker). */
+function applyMapTheme() {
+  if (!map.getLayer('base')) return;
+  const d = isDark(), topo = state.base === 'topo';
+  const paint: Record<string, number> = d
+    ? (topo ? { 'raster-brightness-min': 0.92, 'raster-brightness-max': 0.08, 'raster-hue-rotate': 180, 'raster-saturation': -0.35, 'raster-contrast': 0.1 }
+            : { 'raster-brightness-min': 0, 'raster-brightness-max': 0.62, 'raster-hue-rotate': 0, 'raster-saturation': -0.15, 'raster-contrast': 0 })
+    : { 'raster-brightness-min': 0, 'raster-brightness-max': 1, 'raster-hue-rotate': 0, 'raster-saturation': 0, 'raster-contrast': 0 };
+  for (const [k, v] of Object.entries(paint)) map.setPaintProperty('base', k as 'raster-opacity', v);
+}
+function applyTheme(restyleMap = true) {
+  const d = isDark();
+  document.documentElement.dataset.theme = d ? 'dark' : 'light';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', d ? '#121614' : '#1F4D3A');
+  if (!restyleMap) return;
+  if (state.base === 'street') { map.setStyle(styleFor('street')); render(); } else applyMapTheme();
+}
+darkQuery.addEventListener('change', () => { if (state.theme === 'auto') applyTheme(); });
 
 /** Our overlays (MVUM, ride track) are re-added after every style change. */
 function addOverlays() {
@@ -143,7 +166,8 @@ function addOverlays() {
     layout: { 'text-field': ['get', 'label'], 'text-size': 13, 'text-font': ['Noto Sans Regular'], 'text-offset': [0, 1.9], 'text-anchor': 'top', 'text-allow-overlap': true },
     paint: { 'text-color': '#1E3A8A', 'text-halo-color': '#fff', 'text-halo-width': 2 } });
 }
-map.on('style.load', addOverlays);
+map.on('style.load', () => { addOverlays(); applyMapTheme(); });
+applyTheme(false);
 
 // Tap a trail to see who manages it, which vehicles may use it, and when. A generous tap area for gloves.
 const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '300px', className: 'trail-popup' });
@@ -349,6 +373,9 @@ function basemapPanelHtml(): string {
   const d = state.download;
   return `<h3>Base map</h3>
       <div class="seg" role="group" aria-label="Base map">${(Object.keys(BASE_MAPS) as BaseMapId[]).map(id => `<button data-base="${id}" aria-pressed="${state.base === id}">${BASE_MAPS[id].label}</button>`).join('')}</div>
+      <h2>Dark mode</h2>
+      <div class="seg seg3" role="group" aria-label="Dark mode">${(['auto', 'light', 'dark'] as Theme[]).map(t => `<button data-theme="${t}" aria-pressed="${state.theme === t}">${t === 'auto' ? 'Auto' : t === 'light' ? 'Light' : 'Dark'}</button>`).join('')}</div>
+      <p class="quiet">Auto follows your phone's setting. Dark also dims the map for night riding.</p>
       <h2>Offline maps</h2>
       <p class="quiet">Save the area on screen to use it with no signal.</p>
       ${d ? `<div class="card"><b>Saving… ${d.done} of ${d.total}</b><div class="bar"><i style="width:${Math.round((d.done / Math.max(1, d.total)) * 100)}%"></i></div><div class="btns"><button data-act="cancel-dl">Cancel</button></div></div>`
@@ -507,14 +534,17 @@ function groupHtml(compact: boolean): string {
 // ---------------------------------------------------------------- group messages (kept as a ride log)
 const chat = new GroupChat(community);
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-const isUrgent = (m: ChatMessage) => m.kind === 'quick' && m.body === 'Need help';
+const isUrgent = (m: ChatMessage) => m.kind === 'help' || (m.kind === 'quick' && m.body === 'Need help');
 const snippet = (m: ChatMessage) => (m.kind === 'location' ? 'Location' : m.body.length > 50 ? `${m.body.slice(0, 47)}…` : m.body);
 function msgHtml(m: ChatMessage): string {
   const mine = m.riderId === community.uid;
   const orig = m.replyTo ? chat.thread(m.groupId).find(x => x.id === m.replyTo) : undefined;
   const quote = m.replyTo ? `<button class="msgquote" data-jump="${m.replyTo}">${inl(ICONS.reply, 13)} ${orig ? `${orig.riderId === community.uid ? 'You' : esc(orig.by)}: ${esc(snippet(orig))}` : 'an earlier message'}</button>` : '';
   const when = m.pending ? 'waiting for signal' : timeOf(m.createdAt ?? m.sentAt);
-  const body = m.kind === 'location'
+  if (m.kind === 'helpclear') return `<div class="msgsys" data-msg="${m.id}">${inl(ICONS.check, 14)} ${mine ? 'You are' : `${esc(m.by)} is`} OK now · ${when}</div>`;
+  const body = m.kind === 'help'
+    ? `<span class="msgtext urgent">Need help${m.lat != null ? '' : ''}</span>${m.lat != null ? `<button class="msgloc" data-chatgo="${m.id}">${inl(ICONS.pin, 16)} ${state.pos ? `${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))}` : 'Where'}</button>` : ''}`
+    : m.kind === 'location'
     ? `<button class="msgloc" data-chatgo="${m.id}">${inl(ICONS.pin, 16)} ${mine ? 'My location' : 'Location'}${m.body ? `: ${esc(m.body)}` : ''}${state.pos && m.lat != null ? ` · ${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))}` : ''}</button>`
     : `<span class="msgtext${m.kind === 'quick' ? ' quick' : ''}${isUrgent(m) ? ' urgent' : ''}">${esc(m.body)}</span>`;
   return `<div class="msg${mine ? ' mine' : ''}${m.pending ? ' pending' : ''}${replyTo === m.id ? ' replying' : ''}" data-msg="${m.id}"><div class="msgmeta">${mine ? 'You' : esc(m.by)} · ${when}</div>${quote}${body}</div>`;
@@ -597,7 +627,7 @@ function renderMapChat() {
   const last = (n ? [...msgs].reverse().find(m => m.riderId !== community.uid) : undefined) ?? msgs[msgs.length - 1];
   chatPill.hidden = chatOpen;
   chatPill.classList.toggle('unread', n > 0);
-  chatPill.innerHTML = `${ICONS.chat}<span class="cptext">${last ? `<b>${last.riderId === community.uid ? 'You' : esc(last.by)}:</b> ${last.kind === 'location' ? 'shared a location' : esc(last.body)}` : `Chat with ${esc(g.name)}`}</span>${n ? `<i class="cpcount">${n > 9 ? '9+' : n}</i>` : ''}`;
+  chatPill.innerHTML = `${ICONS.chat}<span class="cptext">${last ? `<b>${last.riderId === community.uid ? 'You' : esc(last.by)}:</b> ${last.kind === 'location' ? 'shared a location' : last.kind === 'help' ? 'needs help' : last.kind === 'helpclear' ? 'is OK now' : esc(last.body)}` : 'Group chat'}</span>${n ? `<i class="cpcount">${n > 9 ? '9+' : n}</i>` : ''}`;
   if (!chatOpen) return;
   $('#cdtitle').textContent = g.name;
   $('#cdbell').classList.toggle('on', chat.pushOn); $('#cdbell').hidden = !chat.pushSupported;
@@ -622,6 +652,56 @@ $('#cdbell').addEventListener('click', () => {
     .catch((err: Error) => toast(err.message)).finally(renderMapChat);
 });
 drawer.addEventListener('submit', e => { e.preventDefault(); chatSubmit(e.target as HTMLFormElement); });
+// ---- "Need help" alert: a red banner on every rider's map and a flashing SOS marker where they are, plus a red mark
+// on the compass bar, until the rider who asked sends "I'm OK".
+function sendHelp() {
+  if (chat.activeHelps(community.group?.id).some(h => h.riderId === community.uid)) { toast('Your help alert is already showing for the group.'); return; }
+  chat.send('help', 'Need help', state.pos ?? undefined);
+  toast(state.pos ? 'Help alert sent with your location.' : 'Help alert sent. Waiting for GPS to share where you are.');
+}
+/** Where a rider who asked for help is now: their live shared position if newer, else where they asked from. */
+function helpSpot(h: ChatMessage): { lat: number; lon: number } | null {
+  const live = community.members.find(m => m.riderId === h.riderId)?.pos;
+  if (live && Date.parse(live.at) > Date.parse(h.createdAt ?? h.sentAt)) return live;
+  if (h.riderId === community.uid && state.pos) return state.pos;
+  return h.lat != null ? { lat: h.lat, lon: h.lon! } : live ?? null;
+}
+const helpBanner = Object.assign(document.createElement('div'), { id: 'helpbanner', hidden: true });
+helpBanner.setAttribute('role', 'alert');
+$('#mapwrap').append(helpBanner);
+const helpMarkers = new Map<string, maplibregl.Marker>();
+function drawHelp() {
+  const helps = community.signedIn ? chat.activeHelps(community.group?.id) : [];
+  $('#mapwrap').classList.toggle('helpon', helps.length > 0);
+  helpBanner.hidden = !helps.length;
+  if (helps.length) {
+    const h = helps[0], mine = h.riderId === community.uid, at = helpSpot(h);
+    const where = !mine && at && state.pos ? ` · ${(distanceM(state.pos, at) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, at))}` : '';
+    helpBanner.innerHTML = `<span class="hbicon">SOS</span><span class="hbtext"><b>${mine ? 'You asked for help' : `${esc(h.by)} needs help`}</b>${where} · ${ago(h.createdAt ?? h.sentAt)}${helps.length > 1 ? ` · +${helps.length - 1} more` : ''}</span>
+      ${mine ? `<button class="hbok" data-helpok="${h.id}">I'm OK</button>` : at ? `<button class="hbgo" data-helpgo="${h.id}">Show</button>` : ''}`;
+  }
+  // Flashing SOS markers.
+  const live = new Set(helps.map(h => h.id));
+  for (const [id, mk] of helpMarkers) if (!live.has(id)) { mk.remove(); helpMarkers.delete(id); }
+  for (const h of helps) {
+    const at = helpSpot(h); if (!at || h.riderId === community.uid) continue;
+    let mk = helpMarkers.get(h.id);
+    if (!mk) {
+      const el = document.createElement('button'); el.className = 'helpmark'; el.innerHTML = `<i class="flash"></i><span>SOS</span><b>${esc(h.by)}</b>`;
+      el.addEventListener('click', ev => { ev.stopPropagation(); setChatOpen(true); });
+      mk = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([at.lon, at.lat]).addTo(map); helpMarkers.set(h.id, mk);
+    } else mk.setLngLat([at.lon, at.lat]);
+  }
+}
+helpBanner.addEventListener('click', e => {
+  const t = e.target as HTMLElement;
+  const ok = t.closest<HTMLElement>('[data-helpok]');
+  if (ok) { try { chat.send('helpclear', "I'm OK", undefined, ok.dataset.helpok); toast('Help alert cleared for everyone.'); } catch (err) { toast((err as Error).message); } return; }
+  const id = t.closest<HTMLElement>('[data-helpgo]')?.dataset.helpgo ?? chat.activeHelps(community.group?.id)[0]?.id;
+  const h = id ? chat.activeHelps(community.group?.id).find(x => x.id === id) : undefined, at = h && helpSpot(h);
+  if (at) { state.follow = false; $('#btn-center').classList.remove('active'); map.flyTo({ center: [at.lon, at.lat], zoom: Math.max(map.getZoom(), 15) }); }
+});
+
 /** A speech bubble over the sender's dot on the map for a few seconds. */
 function riderBubble(m: ChatMessage) {
   const pos = m.kind === 'location' && m.lat != null ? { lat: m.lat, lon: m.lon! } : community.members.find(x => x.riderId === m.riderId)?.pos;
@@ -633,20 +713,25 @@ function riderBubble(m: ChatMessage) {
   setTimeout(() => { el.classList.add('out'); setTimeout(() => mk.remove(), 600); }, 12000);
 }
 chat.onChange = () => {
-  updateUnread(); renderMapChat();
+  updateUnread(); renderMapChat(); drawHelp(); drawHeading();
   if (typingIn('#pane') || typingIn('#sheet')) { afterChat(); return; }
   if (state.tab === 'group' && !state.detail) renderPane();
   if (state.panel === 'riders') refreshPanel();
   afterChat();
 };
-chat.onIncoming = m => { riderBubble(m); freshPill(); };
+chat.onIncoming = m => {
+  if (m.kind === 'help') { navigator.vibrate?.([300, 120, 300, 120, 600]); toast(`${m.by} needs help!`); drawHelp(); return; }
+  if (m.kind === 'helpclear') { toast(`${m.by} is OK now.`); return; }
+  riderBubble(m); freshPill();
+};
 const chatMarker = new maplibregl.Marker({ element: Object.assign(document.createElement('div'), { className: 'tapmark' }) });
 document.addEventListener('click', e => {
   if ((e.target as HTMLElement).closest('[data-openchat]')) { if (state.panel) closeSheet(); setPanel(false); setChatOpen(true); return; }
   const b = (e.target as HTMLElement).closest<HTMLElement>('[data-quick],[data-chatloc],[data-chatgo],[data-chatlog]');
   if (!b) return;
   try {
-    if (b.dataset.quick) { chat.send('quick', b.dataset.quick, undefined, replyTo ?? undefined); setReply(null); }
+    if (b.dataset.quick === 'Need help') { sendHelp(); setReply(null); }
+    else if (b.dataset.quick) { chat.send('quick', b.dataset.quick, undefined, replyTo ?? undefined); setReply(null); }
     if (b.hasAttribute('data-chatloc')) { if (!state.pos) { toast('Waiting for GPS.'); return; } chat.send('location', '', state.pos, replyTo ?? undefined); setReply(null); }
   } catch (err) { toast((err as Error).message); return; }
   if (b.dataset.chatgo) {
@@ -680,7 +765,8 @@ function testRidersHtml(): string {
   if (!community.isAdmin) return '';
   return `<details class="about"${testRiders ? ' open' : ''}><summary>${inl(ICONS.info, 16)} Test riders (admin)</summary>
     <p class="quiet">Three pretend riders (Kim, Dean and Maria, marked "test") join this group, ride slow loops around you, chat now and then, and answer your messages. Only you can turn them on.</p>
-    <div class="btns">${testRiders ? '<button data-act="teststop">Stop test riders</button><button data-act="testnotify">Test notification in 20 s</button>' : `<button data-act="teststart" ${testBusy ? 'disabled' : ''}>Start test riders</button>`}</div></details>`;
+    <div class="btns">${testRiders ? '<button data-act="teststop">Stop test riders</button><button data-act="testnotify">Test notification in 20 s</button><button data-act="testhelp">Test help alert</button>' : `<button data-act="teststart" ${testBusy ? 'disabled' : ''}>Start test riders</button>`}</div>
+    ${testRiders ? '<p class="quiet">Test help alert: Maria asks for help, then sends "I\'m OK" by herself after about 90 seconds.</p>' : ''}</details>`;
 }
 async function demo(action: string, extra: Record<string, unknown> = {}) {
   const c = map.getCenter(), at = state.pos ?? { lat: c.lat, lon: c.lng };
@@ -693,6 +779,7 @@ async function testAction(act: string) {
   try {
     if (act === 'teststart') { await demo('start'); testRiders = true; toast('Test riders joined. Watch the map and the chat.'); }
     if (act === 'teststop') { await demo('stop'); testRiders = false; toast('Test riders left the group.'); }
+    if (act === 'testhelp') { await demo('help'); toast('Maria asked for help. Watch the banner, the map and the compass.'); }
     if (act === 'testnotify') { const r = await demo('later', { seconds: 20 }); toast(`Dean will message in ${r.inSeconds ?? 20} s. Close TrailLink now to see the notification.`); }
     store.set('testRiders', testRiders);
     await community.refreshGroup(); await chat.refresh();
@@ -1020,6 +1107,7 @@ function drawHeading() {
     if (me) {
       for (const m of community.members) if (m.pos && m.sharing && m.riderId !== community.uid) marks.push({ bearing: bearingDeg(me, m.pos), label: esc(initials(m.name)), kind: 'rider', title: `${esc(m.name)} · ${(distanceM(me, m.pos) / 1609.344).toFixed(1)} mi` });
       for (const p of state.pins) if (p.kind === 'regroup') marks.push({ bearing: bearingDeg(me, p), label: '', kind: 'regroup', title: 'Regroup point' });
+      for (const h of chat.activeHelps(community.group?.id)) { const at = h.riderId === community.uid ? null : helpSpot(h); if (at) marks.push({ bearing: bearingDeg(me, at), label: `SOS ${esc(initials(h.by))}`, kind: 'hazard', title: `${esc(h.by)} needs help` }); }
     }
     compassEl.innerHTML = compassHtml(h.deg, h.source, marks, compassEl.clientWidth || 260, headingUp)
       + (h.source === 'map' && phoneCompass.needsPermission ? '<span class="chint">Tap for compass</span>' : '');
@@ -1736,6 +1824,7 @@ function paneClick(e: Event) {
   else if (act === 'cancel-dl') state.download?.ctrl.abort();
   else if (act === 'clear-tiles') sheet(`<h3>Delete all saved maps?</h3><p>You'll need signal to see maps until you save areas again.</p><div class="btns"><button class="danger" data-act2="confirm-clear">Delete</button><button data-close>Keep them</button></div>`);
   if (b.dataset.base) setBase(b.dataset.base as BaseMapId);
+  if (b.dataset.theme) { state.theme = b.dataset.theme as Theme; store.set('theme', state.theme); applyTheme(); refreshPanel(); }
   if (b.dataset.colorby) { state.colorBy = b.dataset.colorby as ColorBy; store.set('colorBy', state.colorBy); applyColorBy(); renderPane(); }
   if (act === 'draw') startDrawing();
   if (act === 'addvehicle') vehicleForm();
@@ -1764,7 +1853,7 @@ function paneClick(e: Event) {
       <div class="btns"><button data-close>Keep</button><button class="danger" data-act2="removerider" data-id="${esc(r.email)}">Remove</button></div>`);
   }
   if (act === 'fitride') { fitRide(); return; }
-  if (act === 'teststart' || act === 'teststop' || act === 'testnotify') { void testAction(act); return; }
+  if (act === 'teststart' || act === 'teststop' || act === 'testnotify' || act === 'testhelp') { void testAction(act); return; }
   if (act === 'sync') { void community.sync(); void backup.run(); }
   if (act === 'signout') void community.signOut().then(() => { state.signin = null; renderPane(); });
   if (act === 'signin-back') { state.signin = state.signin ? { ...state.signin, sent: false, error: undefined } : null; renderPane(); }
@@ -1973,7 +2062,7 @@ $('#btn-center').classList.add('active');
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state, chat, riderBubble, setChatOpen, drawHeading, drawRiders } });
 // ---------------------------------------------------------------- account backup (pins, rides, settings, photos)
 // Settings that follow the rider between phones (map position, panel and install prompts stay per phone).
-const SYNCED_SETTINGS = ['compass', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
+const SYNCED_SETTINGS = ['theme', 'compass', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
 function applySettings(keys: string[]) {
   for (const k of keys) {
     if (k === 'base') { const b = store.get<BaseMapId>('base', 'topo'); if (b !== state.base && b in BASE_MAPS) setBase(b); }
@@ -1981,6 +2070,7 @@ function applySettings(keys: string[]) {
     if (k === 'trails') { state.trails = store.get('trails', true); for (const l of [...TRAIL_LAYERS, ...OVERVIEW_LAYERS]) if (map.getLayer(l.id)) map.setLayoutProperty(l.id, 'visibility', state.trails ? 'visible' : 'none'); }
     if (k === 'rigMarks') { state.rigMarks = store.get('rigMarks', true); applyRigMarks(); }
     if (k === 'mvumImage') { state.mvum = store.get('mvumImage', false); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', state.mvum ? 'visible' : 'none'); }
+    if (k === 'theme') { state.theme = store.get('theme', 'auto'); applyTheme(); }
     if (k === 'compass') { state.compass = store.get('compass', true); drawHeading(); }
     if (k === 'keepAwake') { state.keepAwake = store.get('keepAwake', true); void applyWakeLock(); }
     if (k === 'loosePhotos') loosePhotos = store.get('loosePhotos', []);
@@ -2034,7 +2124,7 @@ window.addEventListener('online', () => backup.schedule(1000));
 function updateGate() { $('#gate').hidden = community.trusted; }
 // Background updates re-draw the open tab, except while the rider is typing in it.
 const typingIn = (sel: string) => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && (a as HTMLInputElement).type !== 'checkbox' && !!a.closest(sel); };
-community.onChange = () => { updateGate(); backupOnSignIn(); renderMapChat(); updateUnread(); refreshRiderTrails(); applyRigMarks(); drawRiders(); drawRemotePins(); drawPins(); refreshPopup(); if (['trails', 'garage', 'group', 'pins'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
+community.onChange = () => { updateGate(); backupOnSignIn(); renderMapChat(); updateUnread(); drawHelp(); refreshRiderTrails(); applyRigMarks(); drawRiders(); drawRemotePins(); drawPins(); refreshPopup(); if (['trails', 'garage', 'group', 'pins'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
 updateGate();
 // Sign-in by emailed code: typed into this TrailLink, so it never jumps to another browser.
 let gateEmail = '';

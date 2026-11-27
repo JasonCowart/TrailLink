@@ -466,3 +466,52 @@ button.msgquote { display: flex; align-items: center; gap: 4px; max-width: 100%;
 .chips { top: calc(var(--map-top) + 46px); }
 .maplibregl-ctrl-top-left { top: calc(var(--map-top) + 72px); }
 #toast { top: calc(var(--map-top) + 46px); }
+
+/* Need help alert */
+#helpbanner { position: absolute; z-index: 3; top: calc(var(--map-top) + 46px); left: 10px; right: 76px; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 8px;
+  background: var(--sos); color: #fff; border-radius: 12px; box-shadow: 0 3px 12px rgba(0,0,0,.35); animation: helppulse 1.4s ease-in-out infinite; cursor: pointer; }
+#helpbanner[hidden] { display: none; }
+#helpbanner .hbicon { flex: none; font: 800 12px/1 system-ui, sans-serif; letter-spacing: .5px; background: #fff; color: var(--sos); border-radius: 6px; padding: 5px 5px; }
+#helpbanner .hbtext { flex: 1; min-width: 0; font-size: 13px; line-height: 1.2; }
+#helpbanner .hbtext b { font-size: 15px; }
+#helpbanner button { flex: none; min-height: 36px; padding: 0 12px; border: 0; border-radius: 10px; background: #fff; color: var(--sos); font-weight: 800; }
+@keyframes helppulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(200,30,30,.7), 0 3px 12px rgba(0,0,0,.35); } 50% { box-shadow: 0 0 0 7px rgba(200,30,30,0), 0 3px 12px rgba(0,0,0,.35); } }
+#mapwrap.helpon .chips { top: calc(var(--map-top) + 104px); }
+#mapwrap.helpon .maplibregl-ctrl-top-left { top: calc(var(--map-top) + 130px); }
+#mapwrap.helpon #toast { top: calc(var(--map-top) + 104px); }
+button.helpmark { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 0; min-height: 0; border: 0; background: none; cursor: pointer; }
+button.helpmark span { position: relative; z-index: 1; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--sos); color: #fff; border: 3px solid #fff; font: 800 13px/1 system-ui, sans-serif; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+button.helpmark b { font-size: 12px; color: var(--sos); background: #fff; padding: 1px 6px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+button.helpmark .flash { position: absolute; left: 50%; top: 22px; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; border: 4px solid #EF4444; animation: strobe-ring 1.4s infinite; }
+@media (prefers-reduced-motion: reduce) { #helpbanner, button.helpmark .flash { animation: none; } }
+#compass .cm.hazard { background: var(--sos); font-size: 8px; padding: 0 4px; }
+.msgsys { align-self: center; font-size: 12px; font-weight: 600; color: #15803D; background: rgba(21,128,61,.1); padding: 3px 10px; border-radius: 10px; }
+
+/* ================= Dark mode ================= */
+html[data-theme="dark"] { color-scheme: dark;
+  --sand: #262C28; --land: #171B18; --paper: #1A1F1B; --ink: #E9EEE8; --quiet: #A3ADA2; --line: #353C36;
+  --pine: #7CC4A0; --action: #D9541A; --warn: #3A2E16; }
+html[data-theme="dark"] body { background: var(--paper); }
+html[data-theme="dark"] .fab { background: #232925; }
+html[data-theme="dark"] .fab svg { stroke: var(--ink); }
+html[data-theme="dark"] .fab.active { background: #2F6B50; } html[data-theme="dark"] .fab.active svg { stroke: #fff; }
+html[data-theme="dark"] .chip.on { background: rgba(26,31,27,.9); color: #9FD8BA; }
+html[data-theme="dark"] .chip { background: rgba(31,77,58,.9); }
+html[data-theme="dark"] #chatpill { background: rgba(26,31,27,.95); color: var(--ink); }
+html[data-theme="dark"] #chatpill > svg { color: #9FD8BA; }
+html[data-theme="dark"] #chatdrawer { background: rgba(24,29,25,.97); }
+html[data-theme="dark"] .msg.mine .msgtext { background: #2F6B50; }
+html[data-theme="dark"] .rbubble { background: #232925; color: var(--ink); }
+html[data-theme="dark"] .rbubble b { color: #7FB0FF; }
+html[data-theme="dark"] .maplibregl-ctrl-scale { background: rgba(26,31,27,.85); color: var(--ink); border-color: var(--ink); }
+html[data-theme="dark"] .maplibregl-ctrl-attrib, html[data-theme="dark"] .maplibregl-ctrl-attrib-button { background-color: rgba(26,31,27,.85); color: var(--ink); }
+html[data-theme="dark"] .trail-popup .maplibregl-popup-content { background: var(--paper); color: var(--ink); }
+html[data-theme="dark"] .trail-popup .maplibregl-popup-tip { border-top-color: var(--paper); border-bottom-color: var(--paper); }
+html[data-theme="dark"] .overlay { background: rgba(0,0,0,.65); }
+html[data-theme="dark"] .seg button[aria-pressed="true"], html[data-theme="dark"] .btns button.on { background: #2F6B50; color: #fff; }
+html[data-theme="dark"] button.primary { color: #fff; }
+html[data-theme="dark"] #placebar, html[data-theme="dark"] #drawbar, html[data-theme="dark"] #installbar { background: var(--paper); }
+html[data-theme="dark"] .tag { background: var(--sand); }
+html[data-theme="dark"] .gate-card { background: var(--paper); }
+html[data-theme="dark"] .msgsys { color: #7DDCA0; }
+html[data-theme="dark"] button.msgloc { background: rgba(14,165,233,.18); }

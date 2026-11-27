@@ -38,6 +38,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -q -f supabase/012-group-messages.sql
           psql -v ON_ERROR_STOP=1 -q -f supabase/013-message-replies.sql
           psql -v ON_ERROR_STOP=1 -q -f supabase/014-test-riders.sql
+          psql -v ON_ERROR_STOP=1 -q -f supabase/015-help-alerts.sql
           psql -v ON_ERROR_STOP=1 -f supabase/test.sql
           psql -v ON_ERROR_STOP=1 -f supabase/test-admin.sql
           psql -v ON_ERROR_STOP=1 -f supabase/test-garage.sql

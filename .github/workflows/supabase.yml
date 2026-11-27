@@ -39,6 +39,7 @@ jobs:
           node scripts/supabase-admin.mjs sql supabase/012-group-messages.sql
           node scripts/supabase-admin.mjs sql supabase/013-message-replies.sql
           node scripts/supabase-admin.mjs sql supabase/014-test-riders.sql
+          node scripts/supabase-admin.mjs sql supabase/015-help-alerts.sql
       - name: Sign-in settings
         if: inputs.action == 'setup'
         run: node scripts/supabase-admin.mjs auth

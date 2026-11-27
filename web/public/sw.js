@@ -1,5 +1,5 @@
 // TrailLink service worker: makes the app open with no signal, and serves saved map tiles offline.
-const APP_CACHE = 'traillink-app-v4';
+const APP_CACHE = 'traillink-app-v5';
 const TILE_CACHE = 'traillink-tiles-v1'; // same name as src/offline.ts
 const RUNTIME_TILE_LIMIT = 3000; // tiles kept from normal browsing (saved areas are not trimmed)
 
@@ -86,7 +86,7 @@ self.addEventListener('push', event => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; } catch { d = { body: event.data ? event.data.text() : '' }; }
   event.waitUntil(self.registration.showNotification(d.title || 'TrailLink', {
-    body: d.body || 'New message', tag: d.tag, renotify: true,
+    body: d.body || 'New message', tag: d.tag, renotify: true, requireInteraction: !!d.urgent, vibrate: d.urgent ? [300, 120, 300, 120, 600] : undefined,
     icon: `${self.registration.scope}icon-192.png`, badge: `${self.registration.scope}icon-192.png`,
     data: { url: new URL(d.url || './#group', self.registration.scope).href },
   }));

@@ -7,7 +7,7 @@ import { SUPABASE_URL } from './config.ts';
 
 export interface ChatMessage {
   id: string; groupId: string; riderId: string; by: string;
-  kind: 'text' | 'quick' | 'location'; body: string; lat?: number; lon?: number;
+  kind: 'text' | 'quick' | 'location' | 'help' | 'helpclear'; body: string; lat?: number; lon?: number;
   sentAt: string; createdAt?: string; pending?: boolean;
   /** The message this one answers (tap a message to reply to it). */
   replyTo?: string;
@@ -48,6 +48,13 @@ export class GroupChat {
     const sent = this.threads[groupId] ?? [];
     return [...sent, ...this.waiting.filter(m => m.groupId === groupId && !sent.some(s => s.id === m.id))];
   }
+  /** Help alerts still open (not answered by their author's "I'm OK"), newest first. */
+  activeHelps(groupId: string | undefined): ChatMessage[] {
+    if (!groupId) return [];
+    const t = this.thread(groupId);
+    const cleared = new Set(t.filter(m => m.kind === 'helpclear').map(m => m.replyTo));
+    return t.filter(m => m.kind === 'help' && !cleared.has(m.id)).reverse();
+  }
   unread(groupId: string | undefined): number {
     if (!groupId) return 0;
     const me = this.c.uid, since = this.lastRead[groupId] ?? '';
@@ -79,7 +86,7 @@ export class GroupChat {
     const g = this.c.group, me = this.c.uid;
     if (!g || !me) throw new Error('Join a ride group first.');
     const text = body.trim().slice(0, 500);
-    if (!text && kind !== 'location') return;
+    if (!text && kind !== 'location' && kind !== 'help') return;
     this.waiting.push({ id: uuid(), groupId: g.id, riderId: me, by: 'You', kind, body: text, lat: at?.lat, lon: at?.lon, sentAt: new Date().toISOString(), pending: true, replyTo });
     this.save(); this.onChange();
     void this.flush();

@@ -63,6 +63,12 @@ Deno.serve(async req => {
   const { data: inGroup } = await db.from('group_members').select('rider_id').eq('group_id', group).in('rider_id', BOTS.map(b => b.id));
   if (!inGroup?.length) return json({ ok: true, running: false });
 
+  if (action === 'help') {
+    // Maria asks for help from where she is; she sends "I'm OK" on her own about 90 s later (on a tick).
+    const b = BOTS[2], p = spot(b, lat, lon);
+    await db.from('group_messages').insert({ id: crypto.randomUUID(), group_id: group, rider_id: b.id, kind: 'help', body: 'Need help', lat: p.lat, lon: p.lon });
+    return json({ ok: true, running: true });
+  }
   if (action === 'later') {
     // One message after a delay, so the admin can close the app and see a notification.
     const wait = Math.min(Math.max(Number(seconds) || 20, 5), 60);
@@ -73,7 +79,19 @@ Deno.serve(async req => {
 
   // tick: move, answer the admin, and chat now and then.
   await moveAll();
-  const { data: recent } = await db.from('group_messages').select('id,rider_id,body,reply_to,created_at').eq('group_id', group).order('created_at', { ascending: false }).limit(10);
+  const { data: recent } = await db.from('group_messages').select('id,rider_id,body,reply_to,created_at').eq('group_id', group).in('kind', ['text', 'quick', 'location']).order('created_at', { ascending: false }).limit(10);
+  // A test rider's help alert clears itself after about 90 s.
+  const { data: helps } = await db.from('group_messages').select('id,rider_id,created_at').eq('group_id', group).eq('kind', 'help').in('rider_id', BOTS.map(b => b.id)).order('created_at', { ascending: false }).limit(3);
+  for (const h of helps ?? []) {
+    const { data: cleared } = await db.from('group_messages').select('id').eq('group_id', group).eq('kind', 'helpclear').eq('reply_to', h.id).limit(1);
+    if (!cleared?.length && Date.now() - Date.parse(h.created_at) > 90_000) await db.from('group_messages').insert({ id: crypto.randomUUID(), group_id: group, rider_id: h.rider_id, kind: 'helpclear', body: "I'm OK", reply_to: h.id });
+  }
+  // The admin asked for help: Kim answers it once.
+  const { data: myHelp } = await db.from('group_messages').select('id').eq('group_id', group).eq('kind', 'help').eq('rider_id', u.user.id).order('created_at', { ascending: false }).limit(1);
+  if (myHelp?.length) {
+    const { data: answered } = await db.from('group_messages').select('id').eq('reply_to', myHelp[0].id).in('rider_id', BOTS.map(b => b.id)).limit(1);
+    if (!answered?.length) await say(group, BOTS[0].id, 'Coming to you now. Stay put.', myHelp[0].id);
+  }
   const latest = recent?.[0];
   if (latest && latest.rider_id === u.user.id) {
     // The admin spoke last: whoever was answered replies to it; otherwise a random test rider does.

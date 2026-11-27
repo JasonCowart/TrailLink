@@ -107,11 +107,11 @@ try {
   // Test riders (admin only): a throwaway admin starts them in a new group.
   const fn = (u, body) => fetch(`${URL}/functions/v1/demo`, { method: 'POST', headers: { apikey: KEY, Authorization: `Bearer ${u.token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const notAdmin = await fn(kim, { action: 'start', lat: 38.57, lon: -109.55 });
-  check(notAdmin.status === 403, `test riders refused for a non-admin (HTTP ${notAdmin.status})`);
+  const naBody = await notAdmin.text(); check(notAdmin.status === 403 && /admin/i.test(naBody), `test riders refused for a non-admin (HTTP ${notAdmin.status} ${naBody.slice(0, 80)})`);
   await sql(`update public.profiles set is_admin = true where id = '${maria.uid}'`);
   const tg = await rest(maria, 'rpc/create_group', { p_name: 'Test riders check' });
   const st = await fn(maria, { action: 'start', lat: 38.57, lon: -109.55 });
-  check(st.ok, `admin starts test riders (HTTP ${st.status})`);
+  check(st.ok, `admin starts test riders (HTTP ${st.status} ${st.ok ? '' : (await st.text()).slice(0, 120)})`);
   const pos = await rest(maria, `group_positions?select=rider_id,lat,lon&group_id=eq.${tg.id}`);
   check(Array.isArray(pos) && pos.length === 3, `three test riders appear on the map (${Array.isArray(pos) ? pos.length : 'error'})`);
   await rest(maria, 'group_messages', { id: randomUUID(), group_id: tg.id, body: 'Where is everyone?' });

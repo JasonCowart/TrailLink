@@ -1972,7 +1972,7 @@ function profileHtml(): string {
   return `${head}
     <div class="profilebox">${profileSvg(pr, profileMarks(pr))}</div>
     <div class="preadout" id="preadout"><span class="quiet">Drag along the chart to follow the ride on the map.</span></div>
-    <div class="pkey">${GRADES.map(g => `<span><i style="background:${g.color}"></i>${g.label}</span>`).join('')}${profileMarks(pr).length ? '<span><i class="dot"></i>Your pins</span>' : ''}</div>
+    <div class="pkey"><span class="pramp"><em>Flat</em><i></i><em>Very steep</em></span>${profileMarks(pr).length ? '<span><i class="dot"></i>Your pins</span>' : ''}</div>
     <div class="stats pstats">
       <div class="stat"><b>${Math.round(pr.climb * FT).toLocaleString()}</b><span>ft climbed</span></div>
       <div class="stat"><b>${Math.round(pr.descent * FT).toLocaleString()}</b><span>ft descended</span></div>

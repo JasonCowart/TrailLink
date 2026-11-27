@@ -14,11 +14,10 @@ export interface Profile {
 const FT = 3.28084, MI = 1609.344;
 /** Grade bands for the shading (and the legend under the chart). */
 export const GRADES = [
-  { max: 8, color: '#86C49A', label: 'Gentle <8%' },
-  { max: 15, color: '#F2B94B', label: 'Steep 8–15%' },
-  { max: Infinity, color: '#E4573D', label: 'Very steep 15%+' },
+  { max: 8, color: '#5EDC8F', label: 'Gentle <8%' },
+  { max: 15, color: '#FBA83C', label: 'Steep 8–15%' },
+  { max: Infinity, color: '#EF4444', label: 'Very steep 15%+' },
 ];
-const band = (g: number) => GRADES.find(b => Math.abs(g) < b.max)!;
 
 export function buildProfile(points: Pt[]): Profile | null {
   if (points.length < 2) return null;
@@ -92,42 +91,72 @@ function scale(pr: Profile) {
   };
 }
 
-export function profileSvg(pr: Profile, marks: ProfileMark[] = []): string {
-  const miles = pr.total / MI;
-  const { lowFt, highFt, yStep, yMin, yMax, x, y } = scale(pr);
-  // Downsample to at most ~240 steps for drawing.
-  const step = Math.max(1, Math.floor(pr.d.length / 240));
+/** Smooth color by steepness (either way): green when flat, through yellow and orange, to red when very steep. */
+const RAMP: [number, number[]][] = [[0, [52, 211, 153]], [4, [163, 230, 53]], [8, [250, 204, 21]], [12, [251, 146, 60]], [15, [239, 68, 68]], [25, [190, 24, 93]]];
+export function gradeColor(g: number): string {
+  const a = Math.min(25, Math.abs(g));
+  let k = 1; while (k < RAMP.length - 1 && RAMP[k][0] < a) k++;
+  const [g0, c0] = RAMP[k - 1], [g1, c1] = RAMP[k], t = Math.max(0, Math.min(1, (a - g0) / (g1 - g0)));
+  return `rgb(${c0.map((v, i) => Math.round(v + (c1[i] - v) * t)).join(',')})`;
+}
+let uid = 0;
+/** Gradient stops along the ride, colored by grade (averaged over each step so single wobbles don't flicker). */
+function gradeStops(pr: Profile, idx: number[]): string {
+  const n = Math.min(64, idx.length), out: string[] = [];
+  for (let k = 0; k < n; k++) {
+    const a = idx[Math.floor((k / n) * (idx.length - 1))], b = idx[Math.floor(((k + 1) / n) * (idx.length - 1))];
+    let sum = 0, c = 0; for (let i = a; i <= b; i++) { sum += pr.g[i]; c++; }
+    const at = ((pr.d[a] + pr.d[b]) / 2) / Math.max(1, pr.total);
+    out.push(`<stop offset="${(at * 100).toFixed(1)}%" stop-color="${gradeColor(sum / Math.max(1, c))}"/>`);
+  }
+  return out.join('');
+}
+function sample(pr: Profile, max: number): number[] {
+  const step = Math.max(1, Math.floor(pr.d.length / max));
   const idx: number[] = []; for (let i = 0; i < pr.d.length; i += step) idx.push(i);
   if (idx[idx.length - 1] !== pr.d.length - 1) idx.push(pr.d.length - 1);
-  // Shaded area under the line, one polygon per run of the same steepness.
-  let fills = '';
-  const colorOf = (k: number) => band(pr.g[idx[k]]).color; // segment k runs from idx[k-1] to idx[k]
-  for (let k = 1; k < idx.length;) {
-    const c = colorOf(k); let end = k;
-    while (end + 1 < idx.length && colorOf(end + 1) === c) end++;
-    const seg = idx.slice(k - 1, end + 1);
-    const pts = seg.map(i => `${x(pr.d[i]).toFixed(1)},${y(pr.e[i]).toFixed(1)}`).join(' ');
-    fills += `<polygon points="${x(pr.d[seg[0]]).toFixed(1)},${Y1} ${pts} ${x(pr.d[seg[seg.length - 1]]).toFixed(1)},${Y1}" fill="${c}" fill-opacity=".75"/>`;
-    k = end + 1;
-  }
+  return idx;
+}
+
+export function profileSvg(pr: Profile, marks: ProfileMark[] = []): string {
+  const miles = pr.total / MI, id = `pf${++uid}`;
+  const { lowFt, highFt, yStep, yMin, yMax, x, y } = scale(pr);
+  const idx = sample(pr, 240);
   const line = idx.map(i => `${x(pr.d[i]).toFixed(1)},${y(pr.e[i]).toFixed(1)}`).join(' ');
-  // Axes: elevation gridlines (ft) and distance ticks (mi).
+  const area = `${X0},${Y1} ${line} ${X1},${Y1}`;
+  // Grid: dashed elevation lines with labels, dashed distance lines.
   let grid = '';
   for (let v = yMin; v <= yMax + 0.1; v += yStep) {
     const yy = Y1 - ((v - yMin) / (yMax - yMin)) * (Y1 - Y0);
-    grid += `<line x1="${X0}" x2="${X1}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}" class="pgrid"/><text x="${X0 - 4}" y="${(yy + 3.5).toFixed(1)}" text-anchor="end" class="plabel">${Math.round(v).toLocaleString()}</text>`;
+    grid += `<line x1="${X0}" x2="${X1}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}" class="pgrid"/><text x="${X0 - 5}" y="${(yy + 3.5).toFixed(1)}" text-anchor="end" class="plabel">${Math.round(v).toLocaleString()}</text>`;
   }
   const xStep = nice(Math.max(0.05, miles / 4));
   for (let m = 0; m <= miles + 1e-9; m += xStep) {
     const xx = x(m * MI);
-    grid += `<line x1="${xx.toFixed(1)}" x2="${xx.toFixed(1)}" y1="${Y1}" y2="${Y1 + 4}" class="paxis"/><text x="${xx.toFixed(1)}" y="${H - 5}" text-anchor="middle" class="plabel">${+m.toFixed(2)}</text>`;
+    grid += `<line x1="${xx.toFixed(1)}" x2="${xx.toFixed(1)}" y1="${Y0 - 4}" y2="${Y1}" class="pgrid v"/><text x="${xx.toFixed(1)}" y="${H - 5}" text-anchor="middle" class="plabel">${+m.toFixed(2)}</text>`;
   }
+  // Highest and lowest points.
+  const hiI = pr.e.indexOf(pr.high), loI = pr.e.indexOf(pr.low);
+  const tag = (i: number, up: boolean) => {
+    const xx = Math.max(X0 + 18, Math.min(X1 - 18, x(pr.d[i]))), yy = y(pr.e[i]);
+    return `<g class="pext"><circle cx="${x(pr.d[i]).toFixed(1)}" cy="${yy.toFixed(1)}" r="2.6"/><text x="${xx.toFixed(1)}" y="${(up ? yy - 7 : yy + 13).toFixed(1)}" text-anchor="middle">${up ? '▲' : '▼'} ${Math.round(pr.e[i] * FT).toLocaleString()}</text></g>`;
+  };
+  const ext = pr.high - pr.low > 1 ? tag(hiI, true) + (y(pr.low) + 14 < Y1 ? tag(loI, false) : '') : '';
   const pinMarks = marks.map(mk => `<g class="pmark"><line x1="${x(mk.d).toFixed(1)}" x2="${x(mk.d).toFixed(1)}" y1="14" y2="${Y1}" stroke="${mk.color}" stroke-dasharray="2 3" stroke-width="1.2"/><circle cx="${x(mk.d).toFixed(1)}" cy="10" r="5.5" fill="${mk.color}" stroke="#fff" stroke-width="1.5"><title>${mk.label}</title></circle></g>`).join('');
   return `<svg class="profile" viewBox="0 0 ${W} ${H}" role="img" aria-label="Elevation profile: ${Math.round(lowFt).toLocaleString()} to ${Math.round(highFt).toLocaleString()} feet over ${miles.toFixed(1)} miles. Drag to move along the ride.">
-    <text x="${X0 - 4}" y="12" text-anchor="end" class="plabel">ft</text><text x="${X1}" y="${H - 5}" text-anchor="end" class="plabel unit">mi</text>
-    ${grid}${fills}<polyline points="${line}" fill="none" stroke="#1F2A24" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-    <line x1="${X0}" x2="${X1}" y1="${Y1}" y2="${Y1}" class="paxis"/>${pinMarks}
-    <g class="scrub" hidden><line class="scrubline" y1="${Y0 - 6}" y2="${Y1}"/><circle class="scrubdot" r="6"/></g>
+    <defs>
+      <linearGradient id="${id}c" gradientUnits="userSpaceOnUse" x1="${X0}" x2="${X1}" y1="0" y2="0">${gradeStops(pr, idx)}</linearGradient>
+      <linearGradient id="${id}f" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".62"/><stop offset=".55" stop-color="#fff" stop-opacity=".22"/><stop offset="1" stop-color="#fff" stop-opacity=".02"/></linearGradient>
+      <mask id="${id}m" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect x="${X0}" y="${Y0 - 6}" width="${X1 - X0}" height="${Y1 - Y0 + 6}" fill="url(#${id}f)"/></mask>
+      <filter id="${id}g" x="-5%" y="-30%" width="110%" height="160%"><feGaussianBlur stdDeviation="2.4"/></filter>
+    </defs>
+    <text x="${X0 - 5}" y="12" text-anchor="end" class="plabel">ft</text><text x="${X1}" y="${H - 5}" text-anchor="end" class="plabel unit">mi</text>
+    ${grid}
+    <polygon points="${area}" fill="url(#${id}c)" mask="url(#${id}m)"/>
+    <polyline points="${line}" fill="none" stroke="url(#${id}c)" stroke-width="5" stroke-opacity=".55" filter="url(#${id}g)" stroke-linejoin="round"/>
+    <polyline points="${line}" fill="none" stroke="url(#${id}c)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+    <line x1="${X0}" x2="${X1}" y1="${Y1}" y2="${Y1}" class="paxis"/>${ext}${pinMarks}
+    <g class="scrub" hidden><line class="scrubline" y1="${Y0 - 6}" y2="${Y1}"/><circle class="scrubring" r="11"/><circle class="scrubdot" r="5.5"/></g>
     <rect class="phit" x="${X0}" y="0" width="${X1 - X0}" height="${H}" fill="transparent"/></svg>`;
 }
 
@@ -146,18 +175,14 @@ export function miniProfileSvg(pr: Profile, at: number | null): string {
   const lo = pr.low, hi = Math.max(pr.high, pr.low + 6); // at least ~20 ft of range, so flat rides look flat
   const x = (m: number) => (m / Math.max(1, pr.total)) * MW;
   const y = (e: number) => MH - 3 - ((e - lo) / (hi - lo)) * (MH - 8);
-  const step = Math.max(1, Math.floor(pr.d.length / 150));
-  const idx: number[] = []; for (let i = 0; i < pr.d.length; i += step) idx.push(i);
-  if (idx[idx.length - 1] !== pr.d.length - 1) idx.push(pr.d.length - 1);
-  let fills = '';
-  for (let k = 1; k < idx.length;) {
-    const c = band(pr.g[idx[k]]).color; let end = k;
-    while (end + 1 < idx.length && band(pr.g[idx[end + 1]]).color === c) end++;
-    const seg = idx.slice(k - 1, end + 1);
-    fills += `<polygon points="${x(pr.d[seg[0]]).toFixed(1)},${MH} ${seg.map(i => `${x(pr.d[i]).toFixed(1)},${y(pr.e[i]).toFixed(1)}`).join(' ')} ${x(pr.d[seg[seg.length - 1]]).toFixed(1)},${MH}" fill="${c}" fill-opacity=".55"/>`;
-    k = end + 1;
-  }
+  const idx = sample(pr, 150), id = `pm${++uid}`;
   const line = idx.map(i => `${x(pr.d[i]).toFixed(1)},${y(pr.e[i]).toFixed(1)}`).join(' ');
   const dot = at == null ? '' : `<line x1="${x(pr.d[at]).toFixed(1)}" x2="${x(pr.d[at]).toFixed(1)}" y1="0" y2="${MH}" class="el-cur"/><circle cx="${x(pr.d[at]).toFixed(1)}" cy="${y(pr.e[at]).toFixed(1)}" r="4.5" class="el-dot"/>`;
-  return `<svg class="el-svg" viewBox="0 0 ${MW} ${MH}" preserveAspectRatio="none" aria-hidden="true">${fills}<polyline points="${line}" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>${dot}</svg>`;
+  return `<svg class="el-svg" viewBox="0 0 ${MW} ${MH}" preserveAspectRatio="none" aria-hidden="true"><defs>
+    <linearGradient id="${id}c" gradientUnits="userSpaceOnUse" x1="0" x2="${MW}" y1="0" y2="0">${gradeStops(pr, idx)}</linearGradient>
+    <linearGradient id="${id}f" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".6"/><stop offset="1" stop-color="#fff" stop-opacity=".03"/></linearGradient>
+    <mask id="${id}m" maskUnits="userSpaceOnUse" x="0" y="0" width="${MW}" height="${MH}"><rect width="${MW}" height="${MH}" fill="url(#${id}f)"/></mask></defs>
+    <line x1="0" x2="${MW}" y1="${MH / 2}" y2="${MH / 2}" class="el-grid"/>
+    <polygon points="0,${MH} ${line} ${MW},${MH}" fill="url(#${id}c)" mask="url(#${id}m)"/>
+    <polyline points="${line}" fill="none" stroke="url(#${id}c)" stroke-width="2.2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>${dot}</svg>`;
 }

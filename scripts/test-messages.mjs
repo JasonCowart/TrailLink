@@ -59,6 +59,26 @@ try {
   await rest(kim, 'rpc/join_group', { p_code: group.code });
   const g = { id: group.id, name: group.name, code: group.code };
 
+  // Shared pins (hazard reports): how the app uploads them.
+  const api = (u, method, path, body, prefer) => fetch(`${URL}/rest/v1/${path}`, { method, headers: { apikey: KEY, Authorization: `Bearer ${u.token}`, 'content-type': 'application/json', ...(prefer ? { Prefer: prefer } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const pinId = randomUUID();
+  const pinRow = { audience: 'all', group_id: null, kind: 'report', report: 'other', note: 'Test washout', lat: 30.29, lon: -95.61, updated_at: new Date().toISOString() };
+  const old = await api(maria, 'POST', 'shared_pins?on_conflict=id', { id: pinId, created_at: new Date().toISOString(), ...pinRow }, 'resolution=merge-duplicates');
+  check(old.status >= 400, `old upsert upload is refused (HTTP ${old.status}) — the bug that kept hazards from sharing`);
+  const ins = await api(maria, 'POST', 'shared_pins', { id: pinId, created_at: new Date().toISOString(), ...pinRow });
+  check(ins.ok, `new upload: hazard report inserted (HTTP ${ins.status})`);
+  const dup = await api(maria, 'POST', 'shared_pins', { id: pinId, created_at: new Date().toISOString(), ...pinRow });
+  const dupBody = await dup.text();
+  check(dup.status === 409 && /23505/.test(dupBody), `uploading it again reports a duplicate (HTTP ${dup.status})`);
+  const upd = await api(maria, 'PATCH', `shared_pins?id=eq.${pinId}`, { ...pinRow, lat: 30.3 });
+  check(upd.ok, `moving it updates the shared copy (HTTP ${upd.status})`);
+  const seenPin = await rest(kim, `shared_pins?select=id,lat,status&id=eq.${pinId}`);
+  check(Array.isArray(seenPin) && seenPin.length === 1 && seenPin[0].lat === 30.3, 'another rider sees the hazard where it was moved');
+  await rest(maria, 'hazard_votes', { pin_id: pinId, rider_id: maria.uid, vote: 'cleared' });
+  const cleared = await rest(kim, `shared_pins?select=status&id=eq.${pinId}`);
+  check(Array.isArray(cleared) && cleared[0]?.status === 'cleared', 'the reporter can mark it Cleared');
+  await sql(`delete from public.shared_pins where id = '${pinId}'`);
+
   // Maria writes two messages with no signal: they wait on her phone.
   let m = phone('maria', maria, { group: g, offline: true, send: [{ kind: 'quick', body: 'Stopping' }, { kind: 'text', body: 'Flat tire, 10 min' }] });
   check(m.thread.length === 2 && m.thread.every(x => x.pending), 'messages written offline wait on the phone');

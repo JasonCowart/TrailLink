@@ -732,3 +732,10 @@ svg.profile .scrubdot { fill: #0EA5E9; stroke: #fff; stroke-width: 2.2; }
   #mapwrap.chatopen #btn-sos { left: calc(min(52%, 480px) + 22px); bottom: 26px; }
   #mapwrap.chatopen #btn-report { bottom: 26px; }
 }
+/* Phone sideways: keep everything clear of the Dynamic Island / notch side (and the far edge), a shorter help banner,
+   and the chat column starts below the banner. */
+@media (orientation: landscape) and (max-height: 520px) {
+  #app { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); box-sizing: border-box; background: var(--paper); }
+  #helpbanner { right: auto; width: min(520px, 62%); }
+  #mapwrap.helpon #chatdrawer { top: calc(var(--map-top) + 112px); }
+}

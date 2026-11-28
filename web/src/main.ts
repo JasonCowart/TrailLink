@@ -796,7 +796,9 @@ const helpMarkers = new Map<string, maplibregl.Marker>();
 function drawHelp() {
   const helps = community.signedIn ? chat.activeHelps(community.group?.id) : [];
   $('#mapwrap').classList.toggle('helpon', helps.length > 0);
-  if (myHelpActive() !== sosStrobing) { sosStrobing = myHelpActive(); drawPins(); }
+  // My alert was cleared (I'm OK, maybe on another phone): my SOS pins stop strobing.
+  if (sosStrobing && !myHelpActive()) sosOkAll();
+  sosStrobing = myHelpActive();
   helpBanner.hidden = !helps.length;
   requestAnimationFrame(() => $('#mapwrap').style.setProperty('--hb-h', `${helpBanner.offsetHeight || 56}px`));
   if (helps.length) {
@@ -825,7 +827,7 @@ function drawHelp() {
 helpBanner.addEventListener('click', e => {
   const t = e.target as HTMLElement;
   const ok = t.closest<HTMLElement>('[data-helpok]');
-  if (ok) { try { chat.send('helpclear', "I'm OK", undefined, ok.dataset.helpok); toast('Help alert cleared for everyone.'); } catch (err) { toast((err as Error).message); } return; }
+  if (ok) { try { chat.send('helpclear', "I'm OK", undefined, ok.dataset.helpok); toast('Help alert cleared for everyone.'); } catch (err) { toast((err as Error).message); } sosOkAll(); return; }
   const id = t.closest<HTMLElement>('[data-helpgo]')?.dataset.helpgo ?? chat.activeHelps(community.group?.id)[0]?.id;
   const h = id ? chat.activeHelps(community.group?.id).find(x => x.id === id) : undefined, at = h && helpSpot(h);
   if (at) { state.follow = false; $('#btn-center').classList.remove('active'); map.flyTo({ center: [at.lon, at.lat], zoom: Math.max(map.getZoom(), 15) }); }
@@ -1668,18 +1670,19 @@ document.addEventListener('visibilitychange', () => { void applyWakeLock(); });
 const pinMarkers = new Map<string, maplibregl.Marker>();
 function myHelpActive() { return community.signedIn && chat.activeHelps(community.group?.id).some(h => h.riderId === community.uid); }
 let sosStrobing = false;
+function sosOkAll() { let n = 0; for (const p of state.pins) if (p.sos && !p.sosOk) { p.sosOk = true; n++; } if (n) { store.savePins(state.pins); drawPins(); } }
 function drawPins() {
   drawHeading(); // regroup points and campsites on the compass and radar
   for (const [id, m] of pinMarkers) if (!state.pins.find(p => p.id === id)) { m.remove(); pinMarkers.delete(id); }
   for (const p of state.pins) {
     if (isCleared(p)) { pinMarkers.get(p.id)?.remove(); pinMarkers.delete(p.id); continue; }
     // Icon only on the map (names overlap); tap for details.
-    const strobe = !!p.sos && myHelpActive();
+    const strobe = !!p.sos && !p.sosOk;
     const key = `${p.kind}:${p.report ?? ''}:${p.photos?.length ? 1 : 0}:${p.sos ? 1 : 0}${strobe ? 's' : ''}`;
     const old = pinMarkers.get(p.id);
     if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().dataset.key === key) continue; old.remove(); }
     const el = document.createElement('button');
-    el.className = `mpin ${p.kind}${strobe ? ' strobe' : ''}`;
+    el.className = `mpin ${p.kind}${p.sos ? ' sos' : ''}${strobe ? ' strobe' : ''}`;
     el.dataset.key = key;
     el.setAttribute('aria-label', pinTitle(p));
     el.innerHTML = `${strobe ? '<i class="flash" aria-hidden="true"></i>' : ''}${p.sos ? '<span class="ricon sosicon" style="--c:#EF4444;width:34px;height:34px">SOS</span>' : pinIcon(p.kind, p.report, 34)}${p.photos?.length ? `<i class="hasphoto" aria-hidden="true">${ICONS.camera}</i>` : ''}`;
@@ -1970,6 +1973,13 @@ function looseSheet(id: string) {
 /** A pin with its photos, full width. Opened from the Pins tab or by tapping the pin on the map. */
 function pinSheet(pinId: string) {
   const pin = state.pins.find(p => p.id === pinId); if (!pin) return;
+  if (pin.sos && !pin.sosOk) {
+    sheet(`<h3 class="withicon"><span class="ricon sosicon" style="--c:#EF4444;width:36px;height:36px">SOS</span>Emergency</h3>
+      <p class="quiet">${new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · ${pin.lat.toFixed(5)}, ${pin.lon.toFixed(5)}</p>
+      <p>${myHelpActive() ? 'Your group sees your SOS alert.' : 'Only you see this pin.'}</p>
+      <div class="btns"><button class="primary" data-act2="sosok" data-id="${pin.id}">${inl(ICONS.check)} I'm OK</button><button class="getoutbtn" data-act="getout">${inl(ICONS.exit)} Get me out</button></div>`);
+    return;
+  }
   const when = new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const sp = sharedOf(pin), hazard = REPORT_KINDS.has(pin.kind);
   const sharing = hazard
@@ -2461,7 +2471,11 @@ function paneClick(e: Event) {
   if (b.dataset.showarea) { const a = savedAreas().find(x => x.id === b.dataset.showarea); if (a) { state.follow = false; closeSheet(); map.fitBounds([[a.bounds.w, a.bounds.s], [a.bounds.e, a.bounds.n]], { padding: viewPad() }); } }
 }
 $('#pane').addEventListener('click', paneClick);
-$('#sheet').addEventListener('click', e => { if (state.panel) paneClick(e); });
+$('#sheet').addEventListener('click', e => {
+  if (state.panel) { paneClick(e); return; }
+  // Get me out from the SOS screen or an SOS pin.
+  if ((e.target as HTMLElement).closest('[data-act="getout"]')) getOutSheet();
+});
 function paneChange(e: Event) {
   const t = e.target as HTMLInputElement;
   if (t.type === 'file') { photoInputChanged(t); return; }
@@ -2575,6 +2589,11 @@ $('#sheet').addEventListener('click', e => {
   }
   if (b.dataset.act2 === 'gotoshared' && b.dataset.id) { const p = community.sharedPins.find(x => x.id === b.dataset.id); if (p) { state.follow = false; closeSheet(); map.flyTo({ center: [p.lon, p.lat], zoom: Math.max(map.getZoom(), 15) }); } return; }
   if (b.dataset.act2 === 'removeshared' && b.dataset.id) { community.unsharePin(b.dataset.id); closeSheet(); drawRemotePins(); renderPane(); toast('Removed for everyone.'); return; }
+  if (b.dataset.act2 === 'sosok') {
+    const mine = chat.activeHelps(community.group?.id).filter(h => h.riderId === community.uid);
+    for (const h of mine) { try { chat.send('helpclear', "I'm OK", undefined, h.id); } catch { /* offline group */ } }
+    sosOkAll(); closeSheet(); toast(mine.length ? 'SOS cleared for everyone.' : 'SOS cleared.'); return;
+  }
   if (b.dataset.act2 === 'report' && b.dataset.pinkind) { const k = b.dataset.pinkind as 'regroup' | 'camp'; if (!state.pos) { startPlacing({ mode: 'new', kind: k }); return; } closeSheet(); reported(addPin(k)); return; }
   if (b.dataset.act2 === 'report' && b.dataset.report) { if (!state.pos) { startPlacing({ mode: 'new', report: b.dataset.report as ReportType }); return; } closeSheet(); reported(addPin('report', undefined, undefined, undefined, b.dataset.report as ReportType)); return; }
   if (b.dataset.act2 === 'reportplace') { startPlacing({ mode: 'new' }); return; }
@@ -2630,13 +2649,14 @@ $('#btn-center').addEventListener('click', () => {
   btn.addEventListener('contextmenu', e => e.preventDefault());
 }
 function showSos() {
+  window.getSelection()?.removeAllRanges();
   navigator.vibrate?.([200, 100, 200]);
   const p = state.pos;
   // Alert the group: an EMERGENCY help alert with my position (red banner, strobing marker and SOS on the compass and
   // radar for everyone, a notification, read aloud). Waits on the phone and sends when there's signal.
   let alerted = '';
   if (community.signedIn && community.group) {
-    if (!myHelpActive()) { try { chat.send('help', 'EMERGENCY · SOS', p ?? undefined); } catch { /* not in a group */ } }
+    try { chat.send('help', 'EMERGENCY · SOS', p ?? undefined); } catch { /* not in a group */ }
     alerted = navigator.onLine ? `Your group (${esc(community.group.name)}) has been alerted with your location.` : `Your group (${esc(community.group.name)}) will be alerted as soon as there's signal.`;
   }
   sheet(`
@@ -2775,6 +2795,8 @@ setInterval(() => { if (community.group) drawRiders(); }, 60_000); // keep 'x mi
 // Riders' reports: check every minute while the app is open.
 setInterval(() => { if (document.visibilityState === 'visible') void community.fetchSharedPins().then(() => community.onChange()); }, 60_000);
 window.addEventListener('online', () => { void community.sync(); });
+// Old SOS pins were saved as hazard reports: make them private SOS pins (not shared, not strobing).
+{ let n = 0; for (const p of state.pins) if (p.kind === 'hazard' && p.note === 'Emergency' && !p.sid) { p.kind = 'note'; p.sos = true; p.sosOk = true; n++; } if (n) store.savePins(state.pins); }
 render();
 map.on('load', drawPins);
 startGps();

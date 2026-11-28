@@ -1665,6 +1665,7 @@ document.addEventListener('visibilitychange', () => { void applyWakeLock(); });
 // ---------------------------------------------------------------- pins
 const pinMarkers = new Map<string, maplibregl.Marker>();
 function drawPins() {
+  drawHeading(); // regroup points and campsites on the compass and radar
   for (const [id, m] of pinMarkers) if (!state.pins.find(p => p.id === id)) { m.remove(); pinMarkers.delete(id); }
   for (const p of state.pins) {
     if (isCleared(p)) { pinMarkers.get(p.id)?.remove(); pinMarkers.delete(p.id); continue; }

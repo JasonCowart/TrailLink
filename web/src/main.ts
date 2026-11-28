@@ -1641,7 +1641,7 @@ const pinMarkers = new Map<string, maplibregl.Marker>();
 function drawPins() {
   for (const [id, m] of pinMarkers) if (!state.pins.find(p => p.id === id)) { m.remove(); pinMarkers.delete(id); }
   for (const p of state.pins) {
-    if (sharedOf(p)?.status === 'cleared') { pinMarkers.get(p.id)?.remove(); pinMarkers.delete(p.id); continue; }
+    if (isCleared(p)) { pinMarkers.get(p.id)?.remove(); pinMarkers.delete(p.id); continue; }
     // Icon only on the map (names overlap); tap for details.
     const key = `${p.kind}:${p.report ?? ''}:${p.photos?.length ? 1 : 0}`;
     const old = pinMarkers.get(p.id);
@@ -1701,13 +1701,19 @@ function repairHazards() {
     const hazard = REPORT_KINDS.has(pin.kind), groupPin = pin.share === 'group' && !!pin.groupId && pin.groupId === community.group?.id;
     if (!hazard && !groupPin) continue;
     const sp = sharedOf(pin);
-    if (sp) { if (!pin.up) { pin.up = true; changed = true; } continue; }
+    if (sp) {
+      if (!pin.up) { pin.up = true; changed = true; }
+      const c = sp.status === 'cleared' ? (sp.clearedAt ?? new Date().toISOString()) : undefined;
+      if (c !== pin.cleared) { pin.cleared = c; changed = true; }
+      continue;
+    }
     if (pin.sid && pending.has(pin.sid)) continue;
     if (!pin.sid) { if (hazard) { shareOwnPin(pin, 'all'); changed = true; } continue; }
     if (!pin.up && !repushed.has(pin.sid)) { repushed.add(pin.sid); pin.share ??= 'all'; pushPin(pin); }
   }
-  if (changed) store.savePins(state.pins);
+  if (changed) { store.savePins(state.pins); drawPins(); }
 }
+const isCleared = (pin: Pin) => (sharedOf(pin)?.status ?? (pin.cleared ? 'cleared' : 'active')) === 'cleared';
 const sharedOf = (pin: Pin) => (pin.sid ? community.sharedPins.find(x => x.id === pin.sid) : undefined);
 const myId = () => community.session?.user.id;
 /** Others' pins I can see: hazard reports from all riders and pins shared with my group. */
@@ -1904,11 +1910,15 @@ function sharedPinsHtml(): string {
   const others = othersPins();
   const active = others.filter(p => p.status === 'active').sort((a, b) => dist(a) - dist(b));
   const hazards = active.filter(p => REPORT_KINDS.has(p.kind)), group = active.filter(p => !REPORT_KINDS.has(p.kind));
-  const cleared = community.sharedPins.filter(p => p.status === 'cleared');
+  const cleared = community.sharedPins.filter(p => p.status === 'cleared').sort((a, b) => (b.clearedAt ?? '').localeCompare(a.clearedAt ?? ''));
+  const mineOf = (p: SharedPin) => state.pins.find(x => x.sid === p.id);
+  const clearedRow = (p: SharedPin) => { const m = mineOf(p); return m
+    ? `<div class="row">${reportIcon(p.report, 34)}<div class="grow"><b>${esc(pinTitle(m))}</b> <span class="tag">Yours</span><div class="quiet">${hazardStatus(p)}</div></div><button data-openpin="${m.id}">Open</button></div>`
+    : row(p); };
   return `${group.length ? `<h2>Shared by your group</h2>${group.slice(0, 30).map(row).join('')}` : ''}
     <h2>Trail reports from riders</h2>
     ${hazards.length ? hazards.slice(0, 40).map(row).join('') : '<p class="quiet">No open reports from other riders.</p>'}
-    ${cleared.length ? `<details class="cleared"><summary>Cleared in the last 30 days (${cleared.length})</summary>${cleared.slice(0, 40).map(row).join('')}</details>` : ''}`;
+    ${cleared.length ? `<details class="cleared"><summary>Cleared hazards, last 30 days (${cleared.length})</summary><p class="quiet">Off the map for everyone. Open one and tap <b>Still there</b> if it's back, or delete your own.</p>${cleared.slice(0, 40).map(clearedRow).join('')}</details>` : ''}`;
 }
 function loosePhotosHtml(): string {
   if (!loosePhotos.length) return '';
@@ -2215,7 +2225,7 @@ const views: Record<Tab, () => string> = {
       <h2>Drop a pin where you are</h2>
       <div class="btns"><button class="primary" data-act="regroup">Regroup</button><button class="danger" data-act="report">Report…</button><button data-act="note">Note…</button>${photoInput('data-newphotopin', `${inl(ICONS.camera)} Photo`)}</div>
       <div class="btns"><button data-act="placepin">${inl(ICONS.pin)} Place a pin on the map</button></div>
-      ${state.pins.length ? state.pins.map(pin => {
+      ${state.pins.some(p => !isCleared(p)) ? state.pins.filter(p => !isCleared(p)).map(pin => {
         const d = p ? `${(distanceM(p, pin) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(p, pin))}` : '';
         const ph = pin.photos ?? [];
         const sp = sharedOf(pin);
@@ -2231,7 +2241,7 @@ const views: Record<Tab, () => string> = {
             <button class="ibtn" data-delpin="${pin.id}" aria-label="Delete ${esc(pinTitle(pin))}" title="Delete">${ICONS.x}</button>
           </span></div>
           ${ph.length ? `<div class="thumbs">${ph.map(id => `<button class="thumb" data-openpin="${pin.id}" aria-label="View photo"><img data-photo="${id}" alt=""></button>`).join('')}</div>` : ''}</div>`;
-      }).join('') : '<p class="quiet">No pins yet. Pins work offline and back up to your account when you have signal.</p>'}
+      }).join('') : (state.pins.length ? '<p class="quiet">No open pins. Cleared hazards are below.</p>' : '<p class="quiet">No pins yet. Pins work offline and back up to your account when you have signal.</p>')}
       ${community.signedIn ? `<label class="tg"><span>Share my new pins with my group<br><span class="quiet">${community.group ? `Regroup points, notes and photo pins go to ${esc(community.group.name)}. Hazard reports always go to all riders.` : 'Join a ride group first (Group tab). Hazard reports always go to all riders.'}</span></span><input type="checkbox" data-set="shareNewPins" ${store.get('shareNewPins', false) ? 'checked' : ''}></label>` : ''}
       ${sharedPinsHtml()}
       ${loosePhotosHtml()}`;

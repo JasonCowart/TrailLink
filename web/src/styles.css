@@ -739,3 +739,30 @@ svg.profile .scrubdot { fill: #0EA5E9; stroke: #fff; stroke-width: 2.2; }
   #helpbanner { right: auto; width: min(520px, 62%); }
   #mapwrap.helpon #chatdrawer { top: calc(var(--map-top) + 112px); }
 }
+/* Need-help banner, integrated: a dark glass card like the strips and compass, with a red beacon and a red glow edge. */
+#helpbanner { background: rgba(20,24,22,.78); backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  border: 1px solid rgba(239,68,68,.65); border-radius: 18px; padding: 7px 7px 7px 9px; gap: 10px; color: #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 0 18px rgba(239,68,68,.35), 0 6px 18px rgba(0,0,0,.35); animation: hbglow 1.6s ease-in-out infinite; }
+#helpbanner::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: #EF4444; box-shadow: 0 0 8px #EF4444; }
+@keyframes hbglow { 0%, 100% { border-color: rgba(239,68,68,.45); box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 0 10px rgba(239,68,68,.2), 0 6px 18px rgba(0,0,0,.35); }
+  50% { border-color: rgba(239,68,68,.95); box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 0 22px rgba(239,68,68,.55), 0 6px 18px rgba(0,0,0,.35); } }
+#helpbanner .hbbeacon { position: relative; flex: none; width: 38px; height: 38px; display: grid; place-items: center; }
+#helpbanner .hbbeacon i { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle, #EF4444 0 44%, rgba(239,68,68,0) 45%); }
+#helpbanner .hbbeacon i::before, #helpbanner .hbbeacon i::after { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 2px solid #EF4444; animation: hbring 1.6s ease-out infinite; }
+#helpbanner .hbbeacon i::after { animation-delay: .8s; }
+@keyframes hbring { 0% { transform: scale(.45); opacity: 1; } 100% { transform: scale(1.15); opacity: 0; } }
+#helpbanner .hbbeacon em { position: relative; font: 800 9px/1 system-ui, sans-serif; letter-spacing: .4px; font-style: normal; color: #fff; }
+#helpbanner .hbtext { display: flex; flex-direction: column; gap: 1px; line-height: 1.2; }
+#helpbanner .hbtext b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#helpbanner .hbtext small { font-size: 12px; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#helpbanner button { display: inline-flex; align-items: center; gap: 5px; min-height: 38px; padding: 0 13px; border-radius: 12px; font-weight: 800; font-size: 14px; }
+#helpbanner .hbgo { background: #EF4444; color: #fff; border: 0; box-shadow: 0 0 10px rgba(239,68,68,.5); }
+#helpbanner .hbok { background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.35); }
+#helpbanner .hbok .inl { color: #4ADE80; }
+html:not([data-theme="dark"]) #helpbanner { background: rgba(24,29,26,.8); }
+@media (prefers-reduced-motion: reduce) { #helpbanner .hbbeacon i::before, #helpbanner .hbbeacon i::after { animation: none; } }
+
+/* Chat: every message on the left (yours stay green and say "You"). */
+.msg.mine { align-self: flex-start; text-align: left; }
+.msg.mine .msgtext { border-radius: 14px 14px 14px 4px; }
+.msg.mine button.msgquote { margin-left: 0; }

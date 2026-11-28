@@ -794,8 +794,10 @@ function drawHelp() {
   if (helps.length) {
     const h = helps[0], mine = h.riderId === community.uid, at = helpSpot(h);
     const where = !mine && at && state.pos ? ` · ${(distanceM(state.pos, at) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, at))}` : '';
-    helpBanner.innerHTML = `<span class="hbicon">SOS</span><span class="hbtext"><b>${mine ? 'You asked for help' : `${esc(h.by)} needs help`}</b>${where} · ${ago(h.createdAt ?? h.sentAt)}${helps.length > 1 ? ` · +${helps.length - 1} more` : ''}</span>
-      ${mine ? `<button class="hbok" data-helpok="${h.id}">I'm OK</button>` : at ? `<button class="hbgo" data-helpgo="${h.id}">Show</button>` : ''}`;
+    const detail = `${where ? where.slice(3) + ' · ' : ''}${ago(h.createdAt ?? h.sentAt)}${helps.length > 1 ? ` · +${helps.length - 1} more` : ''}`;
+    helpBanner.classList.toggle('mine', mine);
+    helpBanner.innerHTML = `<span class="hbbeacon" aria-hidden="true"><i></i><em>SOS</em></span><span class="hbtext"><b>${mine ? 'You asked for help' : `${esc(h.by.replace(/\s*\(test\)/, ''))} needs help`}</b><small>${mine ? `Your group can see where you are · ${detail}` : detail}</small></span>
+      ${mine ? `<button class="hbok" data-helpok="${h.id}">${inl(ICONS.check, 16)} I'm OK</button>` : at ? `<button class="hbgo" data-helpgo="${h.id}">${inl(ICONS.target, 16)} Show</button>` : ''}`;
   }
   // Flashing SOS markers.
   const live = new Set(helps.map(h => h.id));

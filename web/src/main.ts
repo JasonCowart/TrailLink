@@ -1690,6 +1690,23 @@ function pushPin(pin: Pin) {
 }
 function unshareOwnPin(pin: Pin) { if (pin.sid) community.unsharePin(pin.sid); pin.sid = undefined; pin.share = undefined; pin.groupId = undefined; }
 /** The shared copy of one of my pins (to show "cleared by ..." etc.). */
+/** Hazard reports must reach other riders. Fix any of mine that never made it: made before signing in or before
+ * sharing existed (no shared id), or whose upload waited in another browser (Safari vs the Home Screen app). */
+const repushed = new Set<string>();
+function repairHazards() {
+  if (!community.signedIn || !community.sharedFetchedAt) return;
+  const pending = community.pendingPinIds();
+  let changed = false;
+  for (const pin of state.pins) {
+    if (!REPORT_KINDS.has(pin.kind)) continue;
+    const sp = sharedOf(pin);
+    if (sp) { if (!pin.up) { pin.up = true; changed = true; } continue; }
+    if (pin.sid && pending.has(pin.sid)) continue;
+    if (!pin.sid) { shareOwnPin(pin, 'all'); changed = true; continue; }
+    if (!pin.up && !repushed.has(pin.sid)) { repushed.add(pin.sid); pin.share ??= 'all'; pushPin(pin); }
+  }
+  if (changed) store.savePins(state.pins);
+}
 const sharedOf = (pin: Pin) => (pin.sid ? community.sharedPins.find(x => x.id === pin.sid) : undefined);
 const myId = () => community.session?.user.id;
 /** Others' pins I can see: hazard reports from all riders and pins shared with my group. */
@@ -1906,7 +1923,7 @@ function pinSheet(pinId: string) {
   const when = new Date(pin.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const sp = sharedOf(pin), hazard = REPORT_KINDS.has(pin.kind);
   const sharing = hazard
-    ? `<div class="card"><b>Shared with all riders</b><div class="quiet">${sp ? hazardStatus(sp) : community.signedIn ? 'Uploads when you have signal.' : 'Sign in (Trails tab) to share it.'}</div>${sp ? voteButtons(sp) : ''}</div>`
+    ? `<div class="card"><b>Shared with all riders</b><div class="quiet">${sp ? hazardStatus(sp) : !community.signedIn ? 'Sign in (Trails tab) to share it.' : navigator.onLine ? 'Sending to other riders… Still there / Cleared appear once it arrives.' : 'Uploads when you have signal.'}</div>${sp ? voteButtons(sp) : ''}</div>`
     : `<label class="tg"><span><b>Share with my group</b><br><span class="quiet">${pin.share === 'group' ? 'Your ride group can see this pin.' : community.group ? `Private. Turn on to show it to ${esc(community.group.name)}.` : 'Private. Join a ride group to share it.'}</span></span>
         <input type="checkbox" data-pinshare="${pin.id}" ${pin.share === 'group' ? 'checked' : ''} ${community.group || pin.share ? '' : 'disabled'}></label>`;
   sheet(`<div data-pinsheet="${pin.id}"><h3 class="withicon">${pinIcon(pin.kind, pin.report, 36)}${esc(pinTitle(pin))}</h3>
@@ -2646,7 +2663,7 @@ window.addEventListener('online', () => backup.schedule(1000));
 function updateGate() { $('#gate').hidden = community.trusted; }
 // Background updates re-draw the open tab, except while the rider is typing in it.
 const typingIn = (sel: string) => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && (a as HTMLInputElement).type !== 'checkbox' && !!a.closest(sel); };
-community.onChange = () => { updateGate(); backupOnSignIn(); renderMapChat(); updateUnread(); drawHelp(); refreshRiderTrails(); applyRigMarks(); drawRiders(); drawRemotePins(); drawPins(); refreshPopup(); if (['trails', 'garage', 'group', 'pins'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
+community.onChange = () => { repairHazards(); updateGate(); backupOnSignIn(); renderMapChat(); updateUnread(); drawHelp(); refreshRiderTrails(); applyRigMarks(); drawRiders(); drawRemotePins(); drawPins(); refreshPopup(); if (['trails', 'garage', 'group', 'pins'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
 updateGate();
 // Sign-in by emailed code: typed into this TrailLink, so it never jumps to another browser.
 let gateEmail = '';

@@ -283,6 +283,10 @@ export class OnlineCommunity implements Community {
     if (riderId === this.session?.user.id) return 'you';
     return this.members.find(m => m.riderId === riderId)?.name ?? this.sharedPins.find(p => p.riderId === riderId)?.by ?? 'a rider';
   }
+  /** When the shared pins were last downloaded (0 = not this session). */
+  sharedFetchedAt = 0;
+  /** Shared pin ids with an upload or removal still waiting. */
+  pendingPinIds() { return new Set(this.outbox.flatMap(o => (o.k === 'pin' ? [o.p.id] : o.k === 'unpin' ? [o.id] : []))); }
   async fetchSharedPins() {
     if (!navigator.onLine || !this.session) return;
     const since = new Date(Date.now() - 30 * 86400000).toISOString();
@@ -306,6 +310,7 @@ export class OnlineCommunity implements Community {
       return pending.has(sp.id) && o ? { ...sp, status: o.status, clearedBy: o.clearedBy, clearedAt: o.clearedAt, lastConfirmed: o.lastConfirmed, confirmations: o.confirmations } : sp;
     });
     write('traillink.sharedPins', this.sharedPins);
+    this.sharedFetchedAt = Date.now();
     if (!votes.error) { this.myVotes = Object.fromEntries((votes.data as { pin_id: string; vote: 'there' | 'cleared' }[]).map(v => [v.pin_id, v.vote])); write('traillink.pinVotes', this.myVotes); }
   }
 

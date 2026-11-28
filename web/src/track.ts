@@ -4,7 +4,9 @@ import { distanceM } from '../../src/core/geo.ts';
 export interface Pt { lat: number; lon: number; t: number; alt?: number }
 export interface Pin { id: string; kind: 'regroup' | 'hazard' | 'note' | 'photo' | 'report'; lat: number; lon: number; t: number; note?: string; photos?: string[]; report?: string;
   /** Set when shared: the id in the shared database, and who sees it (all riders for hazard reports, or the ride group). */
-  sid?: string; share?: 'all' | 'group'; groupId?: string }
+  sid?: string; share?: 'all' | 'group'; groupId?: string;
+  /** Seen in the shared database at least once (so a missing copy means it was removed, not that it never uploaded). */
+  up?: boolean }
 export interface Track { id: string; name: string; points: Pt[]; startedAt: number; endedAt?: number }
 
 const load = <T>(k: string, d: T): T => { try { return JSON.parse(localStorage.getItem(k) ?? '') as T; } catch { return d; } };

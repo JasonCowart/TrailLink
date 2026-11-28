@@ -743,7 +743,7 @@ svg.profile .scrubdot { fill: #0EA5E9; stroke: #fff; stroke-width: 2.2; }
 #helpbanner { background: rgba(20,24,22,.78); backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2);
   border: 1px solid rgba(239,68,68,.65); border-radius: 18px; padding: 7px 7px 7px 9px; gap: 10px; color: #fff;
   box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 0 18px rgba(239,68,68,.35), 0 6px 18px rgba(0,0,0,.35); animation: hbglow 1.6s ease-in-out infinite; }
-#helpbanner::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: #EF4444; box-shadow: 0 0 8px #EF4444; }
+#helpbanner::before { content: none; }
 @keyframes hbglow { 0%, 100% { border-color: rgba(239,68,68,.45); box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 0 10px rgba(239,68,68,.2), 0 6px 18px rgba(0,0,0,.35); }
   50% { border-color: rgba(239,68,68,.95); box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 0 22px rgba(239,68,68,.55), 0 6px 18px rgba(0,0,0,.35); } }
 #helpbanner .hbbeacon { position: relative; flex: none; width: 38px; height: 38px; display: grid; place-items: center; }

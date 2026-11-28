@@ -408,6 +408,7 @@ function legendPanelHtml(): string {
         ${sw(`<span class="lgpin">${pinIcon('report', 'tree', 26)}</span>`, 'Pin or trail report (tap it for details)')}
         ${sw(`<span class="lgpin shared">${pinIcon('report', 'water', 26)}</span>`, 'Dashed ring: shared by another rider')}
         ${sw(`<span class="lgpin">${pinIcon('regroup', undefined, 26)}<i class="hasphoto">${ICONS.camera}</i></span>`, 'Camera badge: pin has photos')}
+        ${sw(`<span class="lgpin">${pinIcon('camp', undefined, 26)}</span>`, 'Campsite (green diamond on the compass and radar)')}
         ${sw('<span class="mk harder">▲</span>', 'Harder for your rig')}
         ${sw('<span class="mk easier">▼</span>', 'Easier for your rig')}
         ${sw('<span class="lgdot">12</span>', 'Zoomed out: number of trails nearby (tap to zoom in)')}
@@ -1134,7 +1135,7 @@ function getOutDests(): Dest[] {
   const last = state.tracks.find(t => t.endedAt && t.points.length > 1 && Date.now() - t.startedAt < 36 * 3600e3);
   if (rec) out.push({ name: 'Where this ride started', at: rec, kind: 'start' });
   else if (last) out.push({ name: `Start of ${last.name}`, at: last.points[0], kind: 'start' });
-  for (const p of state.pins) if (p.kind === 'regroup' || p.note) out.push({ name: pinTitle(p), at: p, kind: 'pin' });
+  for (const p of state.pins) if (p.kind === 'regroup' || p.kind === 'camp' || p.note) out.push({ name: pinTitle(p), at: p, kind: 'pin' });
   for (const m of community.members) if (m.pos && m.sharing && m.riderId !== community.uid) out.push({ name: m.name.replace(/\s*\(test\)/, ''), at: m.pos, kind: 'rider' });
   const here = state.pos;
   return here ? out.sort((a, b) => (a.kind === 'start' ? -1 : 0) - (b.kind === 'start' ? -1 : 0) || distanceM(here, a.at) - distanceM(here, b.at)) : out;
@@ -1562,7 +1563,9 @@ function drawHeading() {
       const asking = new Set(chat.activeHelps(community.group?.id).map(h => h.riderId));
       for (const m of community.members) if (m.pos && m.sharing && m.riderId !== community.uid && !asking.has(m.riderId)) marks.push({ bearing: bearingDeg(me, m.pos), meters: distanceM(me, m.pos), label: esc(initials(m.name)), kind: 'rider', title: `${esc(m.name)} · ${(distanceM(me, m.pos) / 1609.344).toFixed(1)} mi` });
       if (goDest) marks.push({ bearing: bearingDeg(me, goDest.at), meters: distanceM(me, goDest.at), label: '', kind: 'dest', title: goDest.name });
-      for (const p of state.pins) if (p.kind === 'regroup') marks.push({ bearing: bearingDeg(me, p), meters: distanceM(me, p), label: '', kind: 'regroup', title: 'Regroup point' });
+      const spots = [...state.pins.filter(p => !isCleared(p)).map(p => ({ kind: p.kind, at: p as LL, name: pinTitle(p) })),
+        ...othersPins().filter(p => p.status === 'active').map(p => ({ kind: p.kind, at: p as LL, name: sharedTitle(p) }))];
+      for (const sp of spots) if (sp.kind === 'regroup' || sp.kind === 'camp') marks.push({ bearing: bearingDeg(me, sp.at), meters: distanceM(me, sp.at), label: '', kind: sp.kind, title: esc(sp.name) });
       for (const h of chat.activeHelps(community.group?.id)) { const at = h.riderId === community.uid ? null : helpSpot(h); if (at) marks.push({ bearing: bearingDeg(me, at), meters: distanceM(me, at), label: `SOS ${esc(initials(h.by))}`, kind: 'hazard', title: `${esc(h.by)} needs help` }); }
     }
     drawRadar(marks, h.deg);
@@ -1679,7 +1682,7 @@ function drawPins() {
     pinMarkers.set(p.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map));
   }
 }
-const PIN_NAMES = { regroup: 'Regroup point', hazard: 'Hazard', note: 'Note', photo: 'Photo', report: 'Report' } as const;
+const PIN_NAMES = { camp: 'Campsite', regroup: 'Regroup point', hazard: 'Hazard', note: 'Note', photo: 'Photo', report: 'Report' } as const;
 /** Pin name; with icon=true, report pins start with their icon (for the map). */
 function pinTitle(p: Pin) {
   const r = p.kind === 'report' && p.report ? REPORTS[p.report as ReportType] : null;
@@ -1785,7 +1788,7 @@ function drawRemotePins() {
 }
 
 // ---------------------------------------------------------------- placing and moving pins: slide the map under a crosshair
-type Place = { mode: 'new'; report?: ReportType } | { mode: 'move'; pinId: string };
+type Place = { mode: 'new'; report?: ReportType; kind?: 'regroup' | 'camp' } | { mode: 'move'; pinId: string };
 let place: Place | null = null;
 function startPlacing(p: Place, center?: [number, number]) {
   closeSheet(); popup.remove(); place = p; state.follow = false;
@@ -1796,7 +1799,7 @@ function refreshPlaceBar() {
   $('#placebar')?.remove(); $('#crosshair')?.remove();
   if (!place) return;
   const pin = place.mode === 'move' ? state.pins.find(x => x.id === (place as { pinId: string }).pinId) : null;
-  const what = pin ? pinTitle(pin) : place.mode === 'new' && place.report ? REPORTS[place.report].label : 'pin';
+  const what = pin ? pinTitle(pin) : place.mode === 'new' && place.report ? REPORTS[place.report].label : place.mode === 'new' && place.kind ? PIN_NAMES[place.kind] : 'pin';
   $('#mapwrap').insertAdjacentHTML('beforeend', `<div id="crosshair" aria-hidden="true"></div>
     <div id="placebar"><b>${place.mode === 'move' ? `Move ${esc(what)}` : `Place ${esc(what)}`}</b><span>Slide the map until the crosshair is on the spot.</span>
     <div class="btns"><button data-place="cancel">Cancel</button><button class="primary" data-place="ok">${place.mode === 'move' ? 'Save new spot' : 'Drop pin here'}</button></div></div>`);
@@ -1810,6 +1813,7 @@ $('#mapwrap').addEventListener('click', e => {
     const pin = state.pins.find(x => x.id === p.pinId); if (!pin) return;
     pin.lat = at.lat; pin.lon = at.lon; pushPin(pin); store.savePins(state.pins); drawPins(); renderPane(); toast('Pin moved.');
   } else if (p.report) reported(addPin('report', undefined, undefined, at, p.report));
+  else if (p.kind) reported(addPin(p.kind, undefined, undefined, at));
   else pinChooser(at);
 });
 
@@ -1817,7 +1821,7 @@ $('#mapwrap').addEventListener('click', e => {
 function pinChooser(at: { lat: number; lon: number }) {
   pendingAt = at;
   sheet(`<h3>What's here?</h3>
-    <div class="btns"><button class="primary" data-act2="pinat" data-kind="regroup">Regroup</button><button data-act2="pinat" data-kind="note">Note…</button></div>
+    <div class="btns"><button data-act2="pinat" data-kind="note">Note…</button></div>
     ${reportGridHtml('pinat')}
     <div class="btns"><button data-close>Cancel</button></div>`);
 }
@@ -1830,7 +1834,8 @@ function noteSheet(at?: { lat: number; lon: number }) {
 
 // ---------------------------------------------------------------- quick trail reports (the map's Report button)
 function reportGridHtml(act: string) {
-  return `<div class="reportgrid">${REPORT_TYPES.map(t => `<button data-act2="${act}" data-report="${t}">${reportIcon(t, 50)}${REPORTS[t].label}</button>`).join('')}</div>`;
+  return `<p class="rg-sub">Spots</p><div class="reportgrid">${(['regroup', 'camp'] as const).map(k => `<button data-act2="${act}" data-pinkind="${k}">${pinIcon(k, undefined, 50)}${PIN_NAMES[k]}</button>`).join('')}</div>
+    <p class="rg-sub">Trail problems</p><div class="reportgrid">${REPORT_TYPES.map(t => `<button data-act2="${act}" data-report="${t}">${reportIcon(t, 50)}${REPORTS[t].label}</button>`).join('')}</div>`;
 }
 function openReport() {
   sheet(`<h3>Report on the trail</h3>
@@ -2565,11 +2570,13 @@ $('#sheet').addEventListener('click', e => {
   }
   if (b.dataset.act2 === 'gotoshared' && b.dataset.id) { const p = community.sharedPins.find(x => x.id === b.dataset.id); if (p) { state.follow = false; closeSheet(); map.flyTo({ center: [p.lon, p.lat], zoom: Math.max(map.getZoom(), 15) }); } return; }
   if (b.dataset.act2 === 'removeshared' && b.dataset.id) { community.unsharePin(b.dataset.id); closeSheet(); drawRemotePins(); renderPane(); toast('Removed for everyone.'); return; }
+  if (b.dataset.act2 === 'report' && b.dataset.pinkind) { const k = b.dataset.pinkind as 'regroup' | 'camp'; if (!state.pos) { startPlacing({ mode: 'new', kind: k }); return; } closeSheet(); reported(addPin(k)); return; }
   if (b.dataset.act2 === 'report' && b.dataset.report) { if (!state.pos) { startPlacing({ mode: 'new', report: b.dataset.report as ReportType }); return; } closeSheet(); reported(addPin('report', undefined, undefined, undefined, b.dataset.report as ReportType)); return; }
   if (b.dataset.act2 === 'reportplace') { startPlacing({ mode: 'new' }); return; }
   if (b.dataset.act2 === 'pinat' && pendingAt) {
     const at = pendingAt; pendingAt = null; closeSheet();
     if (b.dataset.report) reported(addPin('report', undefined, undefined, at, b.dataset.report as ReportType));
+    else if (b.dataset.pinkind) reported(addPin(b.dataset.pinkind as 'regroup' | 'camp', undefined, undefined, at));
     else if (b.dataset.kind === 'note') noteSheet(at);
     else addPin('regroup', undefined, undefined, at);
     return;

@@ -801,3 +801,8 @@ html:not([data-theme="dark"]) #helpbanner { background: rgba(24,29,26,.8); }
 #radar .rd-blip.hazard { width: 20px; height: 20px; margin: -10px 0 0 -10px; background: #EF4444; font-size: 6px; box-shadow: 0 0 10px #EF4444; animation: cstrobe 1.6s infinite; }
 @media (prefers-reduced-motion: reduce) { #radar .rd-pulse, #radar .rd-blip { animation: none; } #radar .rd-pulse { display: none; } }
 @media (orientation: landscape) and (max-height: 520px) { #radar { width: 96px; height: 96px; } #radar.big { width: 150px; height: 150px; } }
+/* Campsites: green diamonds on the compass and radar. Report sheet section labels. */
+#compass .cm.camp { background: #22C55E; box-shadow: 0 0 6px rgba(34,197,94,.9); min-width: 8px; width: 8px; height: 8px; padding: 0; border-radius: 1px; transform: translateX(-50%) rotate(45deg); top: 16px; bottom: auto; }
+#compass .cdist.camp { color: #86EFAC; }
+#radar .rd-blip.camp { width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 2px; transform: rotate(45deg); background: #22C55E; box-shadow: 0 0 6px rgba(34,197,94,.9); }
+.rg-sub { margin: 10px 2px 2px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--quiet); }

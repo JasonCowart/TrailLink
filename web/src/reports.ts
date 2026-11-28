@@ -21,6 +21,7 @@ export const REPORT_TYPES = Object.keys(REPORTS) as ReportType[];
 /** Icons for the other pin kinds, in the same style. */
 export const PIN_ICONS = {
   regroup: { label: 'Regroup point', color: '#B4400F', path: '<path d="M5 21V4"/><path d="M5 4h11l-2 3.5L16 11H5"/>' },
+  camp:    { label: 'Campsite', color: '#15803D', path: '<path d="M3 20 12 5l9 15z"/><path d="M9.5 20 12 15l2.5 5"/><path d="M10.3 3.3 12 5l1.7-1.7"/>' },
   note:    { label: 'Note', color: '#1F4D3A', path: '<path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4"/><path d="M8 9h8M8 13h5"/>' },
   photo:   { label: 'Photo', color: '#1D4ED8', path: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>' },
 } as const;

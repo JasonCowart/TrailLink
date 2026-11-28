@@ -1698,11 +1698,12 @@ function repairHazards() {
   const pending = community.pendingPinIds();
   let changed = false;
   for (const pin of state.pins) {
-    if (!REPORT_KINDS.has(pin.kind)) continue;
+    const hazard = REPORT_KINDS.has(pin.kind), groupPin = pin.share === 'group' && !!pin.groupId && pin.groupId === community.group?.id;
+    if (!hazard && !groupPin) continue;
     const sp = sharedOf(pin);
     if (sp) { if (!pin.up) { pin.up = true; changed = true; } continue; }
     if (pin.sid && pending.has(pin.sid)) continue;
-    if (!pin.sid) { shareOwnPin(pin, 'all'); changed = true; continue; }
+    if (!pin.sid) { if (hazard) { shareOwnPin(pin, 'all'); changed = true; } continue; }
     if (!pin.up && !repushed.has(pin.sid)) { repushed.add(pin.sid); pin.share ??= 'all'; pushPin(pin); }
   }
   if (changed) store.savePins(state.pins);

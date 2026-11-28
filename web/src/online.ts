@@ -385,6 +385,14 @@ export class OnlineCommunity implements Community {
     void this.sync();
   }
 
+  /** New shared pin: insert. Already there (moved or renamed): update only the columns riders may change.
+   * (An upsert would also try to overwrite id and created_at, which riders aren't allowed to update, so it was refused.) */
+  private async putPin(p: PinUpload) {
+    const row = { audience: p.audience, group_id: p.groupId, kind: p.kind, report: p.report ?? null, note: p.note ?? null, lat: p.lat, lon: p.lon, updated_at: new Date().toISOString() };
+    const ins = await this.sb.from('shared_pins').insert({ id: p.id, created_at: p.createdAt, ...row });
+    if (ins.error?.code === '23505') return await this.sb.from('shared_pins').update(row).eq('id', p.id);
+    return ins;
+  }
   private async run(op: Op): Promise<'done' | 'retry' | 'drop'> {
     const uid = this.session!.user.id;
     const rating = (vehicle: string | null) => this.sb.from('ratings').upsert({ tid: (op as { tid: string }).tid, rider_id: uid, difficulty: (op as { n: number }).n,
@@ -402,10 +410,7 @@ export class OnlineCommunity implements Community {
           geom: `SRID=4326;LINESTRING(${op.t.coords.map(([x, y]) => `${x} ${y}`).join(',')})`,
         }, { onConflict: 'id', ignoreDuplicates: true })
       : op.k === 'deltrail' ? await this.sb.from('rider_trails').delete().eq('id', op.id)
-      : op.k === 'pin' ? await this.sb.from('shared_pins').upsert({
-          id: op.p.id, audience: op.p.audience, group_id: op.p.groupId, kind: op.p.kind, report: op.p.report ?? null, note: op.p.note ?? null,
-          lat: op.p.lat, lon: op.p.lon, created_at: op.p.createdAt, updated_at: new Date().toISOString(),
-        }, { onConflict: 'id' })
+      : op.k === 'pin' ? await this.putPin(op.p)
       : op.k === 'unpin' ? await this.sb.from('shared_pins').delete().eq('id', op.id)
       : op.k === 'award' ? await this.sb.from('badge_awards').upsert({ rider_id: uid, badge: op.badge, earned_at: op.at, detail: op.detail ?? null }, { onConflict: 'rider_id,badge', ignoreDuplicates: true })
       : op.k === 'vote' ? await this.sb.from('hazard_votes').upsert({ pin_id: op.id, rider_id: uid, vote: op.v, voted_at: new Date().toISOString() }, { onConflict: 'pin_id,rider_id' })

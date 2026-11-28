@@ -1825,6 +1825,12 @@ function photoInputChanged(t: HTMLInputElement) {
   if (t.hasAttribute('data-newphotopin')) void photoPin(files);
   else if (t.dataset.addphoto) void addPhotosTo(t.dataset.addphoto, files);
 }
+// Pins list rows: the camera is a plain button that opens one shared, hidden photo picker. (A picker hidden
+// inside each row could catch a tap meant for the X next to it when the list redraws mid-tap on iPhone.)
+const pickEl = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', multiple: true, hidden: true });
+document.body.append(pickEl);
+pickEl.addEventListener('change', () => { if (pickEl.dataset.addphoto) photoInputChanged(pickEl); pickEl.value = ''; });
+function pickPhotoFor(pinId: string) { pickEl.dataset.addphoto = pinId; pickEl.click(); }
 const photoInput = (attr: string, label: string, cls = '') =>
   `<label class="filebtn ${cls}">${label}<input type="file" accept="image/*" multiple ${attr}></label>`;
 /** Photos taken in the last two minutes were probably just shot with the camera (not picked from the library). */
@@ -2221,7 +2227,7 @@ const views: Record<Tab, () => string> = {
           <span class="ibtns">
             <button class="ibtn" data-goto="${pin.id}" aria-label="Show ${esc(pinTitle(pin))} on the map" title="Show on map">${ICONS.target}</button>
             <button class="ibtn" data-movepin="${pin.id}" aria-label="Move ${esc(pinTitle(pin))}" title="Move">${ICONS.move}</button>
-            <label class="ibtn filebtn" title="Add photo" aria-label="Add a photo to ${esc(pinTitle(pin))}">${ICONS.camera}<input type="file" accept="image/*" multiple data-addphoto="${pin.id}"></label>
+            <button class="ibtn" data-pickphoto="${pin.id}" title="Add photo" aria-label="Add a photo to ${esc(pinTitle(pin))}">${ICONS.camera}</button>
             <button class="ibtn" data-delpin="${pin.id}" aria-label="Delete ${esc(pinTitle(pin))}" title="Delete">${ICONS.x}</button>
           </span></div>
           ${ph.length ? `<div class="thumbs">${ph.map(id => `<button class="thumb" data-openpin="${pin.id}" aria-label="View photo"><img data-photo="${id}" alt=""></button>`).join('')}</div>` : ''}</div>`;
@@ -2395,6 +2401,7 @@ function paneClick(e: Event) {
   if (b.dataset.gpx) downloadGpx(b.dataset.gpx);
   if (b.dataset.delride) { const t = state.tracks.find(x => x.id === b.dataset.delride); if (t) sheet(`<h3>Delete ${esc(t.name)}?</h3><p>This removes the ride from the map, this phone and your backup. Export it as GPX first if you want to keep a copy.</p><div class="btns"><button data-close>Keep it</button><button class="danger" data-act2="delride" data-id="${t.id}">Delete</button></div>`); return; }
   if (b.dataset.viewride) { state.viewRide = b.dataset.viewride; state.scrubI = null; scrubMarker.remove(); renderPane(); fitRide(); return; }
+  if (b.dataset.pickphoto) { pickPhotoFor(b.dataset.pickphoto); return; }
   if (b.dataset.delpin) { const pin = state.pins.find(p => p.id === b.dataset.delpin); if (pin) { removePin(pin.id); if (pin.photos?.length) toast(`Pin deleted. Its photo${pin.photos.length === 1 ? ' is' : 's are'} kept under "Photos from deleted pins".`); } }
   if (b.dataset.openpin) pinSheet(b.dataset.openpin);
   if (b.dataset.movepin) { const pin = state.pins.find(p => p.id === b.dataset.movepin); if (pin) startPlacing({ mode: 'move', pinId: pin.id }, [pin.lon, pin.lat]); }
@@ -2664,7 +2671,14 @@ window.addEventListener('online', () => backup.schedule(1000));
 function updateGate() { $('#gate').hidden = community.trusted; }
 // Background updates re-draw the open tab, except while the rider is typing in it.
 const typingIn = (sel: string) => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && (a as HTMLInputElement).type !== 'checkbox' && !!a.closest(sel); };
-community.onChange = () => { repairHazards(); updateGate(); backupOnSignIn(); renderMapChat(); updateUnread(); drawHelp(); refreshRiderTrails(); applyRigMarks(); drawRiders(); drawRemotePins(); drawPins(); refreshPopup(); if (['trails', 'garage', 'group', 'pins'].includes(state.tab) && !state.detail && !typingIn('#pane')) renderPane(); };
+// Background updates wait while a finger is on the panel, so a row can't move under a tap.
+let paneTouch = false, paneRedraw = false;
+$('#pane').addEventListener('pointerdown', () => { paneTouch = true; }, { capture: true });
+for (const ev of ['pointerup', 'pointercancel'] as const) document.addEventListener(ev, () => {
+  if (!paneTouch) return; paneTouch = false;
+  if (paneRedraw) { paneRedraw = false; setTimeout(() => { if (!state.detail && !typingIn('#pane')) renderPane(); }, 350); }
+});
+community.onChange = () => { repairHazards(); updateGate(); backupOnSignIn(); renderMapChat(); updateUnread(); drawHelp(); refreshRiderTrails(); applyRigMarks(); drawRiders(); drawRemotePins(); drawPins(); refreshPopup(); if (['trails', 'garage', 'group', 'pins'].includes(state.tab) && !state.detail && !typingIn('#pane')) { if (paneTouch) paneRedraw = true; else renderPane(); } };
 updateGate();
 // Sign-in by emailed code: typed into this TrailLink, so it never jumps to another browser.
 let gateEmail = '';

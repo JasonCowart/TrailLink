@@ -2771,7 +2771,11 @@ function drawElevLine() {
   if (elevCache?.id !== t.id || elevCache.n !== t.points.length) { elevCache = { id: t.id, n: t.points.length, pr: buildProfile(t.points) }; if (!elevDrag) elevAt = null; }
   elevDrawnAt = performance.now();
   const pr = elevCache.pr, live = t === state.recording;
-  if (!pr) { elevEl.hidden = !live; elevEl.innerHTML = '<div class="el-text"><b>Recording</b><span>Elevation builds as you ride</span></div>'; return; }
+  if (!pr) {
+    elevEl.innerHTML = live ? '<div class="el-text"><b>● Rec</b><span>Elevation builds as you ride</span></div>'
+      : `<div class="el-text"><b>${new Date(t.startedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</b><span>No elevation: GPS didn't report altitude</span><button class="el-x" data-elclose aria-label="Hide">${ICONS.x}</button></div>`;
+    elevEl.hidden = false; return;
+  }
   // Where to put the dot: where you dragged; else the end of a live ride; else your spot if you're on the ride.
   let at = elevAt;
   if (at == null && live) at = pr.d.length - 1;

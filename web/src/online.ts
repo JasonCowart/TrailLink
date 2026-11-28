@@ -442,8 +442,15 @@ export class OnlineCommunity implements Community {
   }
 
   private syncing: Promise<void> | null = null;
+  private syncAgain = false;
   sync(): Promise<void> {
-    if (!this.syncing) this.syncing = this.doSync().finally(() => { this.syncing = null; });
+    // A change queued while a sync is running (e.g. from the refresh it triggers) gets its own run right after,
+    // instead of waiting for the next app event.
+    if (this.syncing) { this.syncAgain = true; return this.syncing; }
+    this.syncing = this.doSync().finally(() => {
+      this.syncing = null;
+      if (this.syncAgain) { this.syncAgain = false; if (this.outbox.length) void this.sync(); }
+    });
     return this.syncing;
   }
   private async doSync() {

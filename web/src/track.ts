@@ -8,7 +8,9 @@ export interface Pin { id: string; kind: 'regroup' | 'hazard' | 'note' | 'photo'
   /** Seen in the shared database at least once (so a missing copy means it was removed, not that it never uploaded). */
   up?: boolean;
   /** When another rider (or I) marked this hazard cleared; it then lives in the Cleared list, not my pins. */
-  cleared?: string }
+  cleared?: string;
+  /** Saved by the SOS button: strobes on my map while my help alert is active. */
+  sos?: boolean }
 export interface Track { id: string; name: string; points: Pt[]; startedAt: number; endedAt?: number }
 
 const load = <T>(k: string, d: T): T => { try { return JSON.parse(localStorage.getItem(k) ?? '') as T; } catch { return d; } };

@@ -806,3 +806,7 @@ html:not([data-theme="dark"]) #helpbanner { background: rgba(24,29,26,.8); }
 #compass .cdist.camp { color: #86EFAC; }
 #radar .rd-blip.camp { width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 2px; transform: rotate(45deg); background: #22C55E; box-shadow: 0 0 6px rgba(34,197,94,.9); }
 .rg-sub { margin: 10px 2px 2px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--quiet); }
+/* SOS: emergency bubble in chat, the strobing Emergency pin, the alert card on the SOS screen. */
+.msgtext.urgent.sos { font-weight: 800; letter-spacing: .3px; box-shadow: 0 0 10px rgba(239,68,68,.7); }
+.ricon.sosicon { color: #fff; font: 800 11px/1 system-ui, sans-serif; display: grid; place-items: center; }
+.card.sosalert { border-color: #EF4444; background: color-mix(in srgb, #EF4444 12%, transparent); }

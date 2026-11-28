@@ -639,6 +639,7 @@ function groupHtml(compact: boolean): string {
 // ---------------------------------------------------------------- group messages (kept as a ride log)
 const chat = new GroupChat(community);
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const isSos = (m: ChatMessage) => m.kind === 'help' && /SOS/.test(m.body ?? '');
 const isUrgent = (m: ChatMessage) => m.kind === 'help' || (m.kind === 'quick' && m.body === 'Need help');
 const snippet = (m: ChatMessage) => (m.kind === 'location' ? 'Location' : m.body.length > 50 ? `${m.body.slice(0, 47)}…` : m.body);
 /** My newest sent message carries the "Seen by" line. */
@@ -654,7 +655,7 @@ function msgHtml(m: ChatMessage): string {
   if (m.kind === 'spotclear') { const o = chat.thread(m.groupId).find(x => x.id === m.replyTo); return `<div class="msgsys gray" data-msg="${m.id}">${mine ? 'You' : esc(m.by)} took “${esc(o?.body ?? 'a spot')}” off the map · ${when}</div>`; }
   if (m.kind === 'helpclear') return `<div class="msgsys" data-msg="${m.id}">${inl(ICONS.check, 14)} ${mine ? 'You are' : `${esc(m.by)} is`} OK now · ${when}</div>`;
   const body = m.kind === 'help'
-    ? `<span class="msgtext urgent">Need help${m.lat != null ? '' : ''}</span>${m.lat != null ? `<button class="msgloc" data-chatgo="${m.id}">${inl(ICONS.pin, 16)} ${state.pos ? `${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))}` : 'Where'}</button>` : ''}`
+    ? `<span class="msgtext urgent${isSos(m) ? ' sos' : ''}">${isSos(m) ? 'EMERGENCY · SOS' : 'Need help'}</span>${m.lat != null ? `<button class="msgloc" data-chatgo="${m.id}">${inl(ICONS.pin, 16)} ${state.pos ? `${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))}` : 'Where'}</button>` : ''}`
     : m.kind === 'location'
     ? `<button class="msgloc" data-chatgo="${m.id}">${inl(ICONS.pin, 16)} ${m.body ? esc(m.body) : mine ? 'My location' : 'Location'}${state.pos && m.lat != null ? ` · ${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))}` : ''}</button>`
     : `<span class="msgtext${m.kind === 'quick' ? ' quick' : ''}${isUrgent(m) ? ' urgent' : ''}">${esc(m.body)}</span>`;
@@ -741,7 +742,7 @@ function renderMapChat() {
   const last = (n ? [...msgs].reverse().find(m => m.riderId !== community.uid) : undefined) ?? msgs[msgs.length - 1];
   chatPill.hidden = chatOpen;
   chatPill.classList.toggle('unread', n > 0);
-  chatPill.innerHTML = `${ICONS.chat}<span class="cptext">${last ? `<b>${last.riderId === community.uid ? 'You' : esc(last.by)}:</b> ${last.kind === 'location' ? 'shared a location' : last.kind === 'help' ? 'needs help' : last.kind === 'helpclear' ? 'is OK now' : last.kind === 'spotclear' ? 'removed a spot' : esc(last.body)}` : 'Group chat'}</span>${n ? `<i class="cpcount">${n > 9 ? '9+' : n}</i>` : ''}`;
+  chatPill.innerHTML = `${ICONS.chat}<span class="cptext">${last ? `<b>${last.riderId === community.uid ? 'You' : esc(last.by)}:</b> ${last.kind === 'location' ? 'shared a location' : last.kind === 'help' ? (isSos(last) ? 'EMERGENCY (SOS)' : 'needs help') : last.kind === 'helpclear' ? 'is OK now' : last.kind === 'spotclear' ? 'removed a spot' : esc(last.body)}` : 'Group chat'}</span>${n ? `<i class="cpcount">${n > 9 ? '9+' : n}</i>` : ''}`;
   if (!chatOpen) return;
   $('#cdtitle').textContent = g.name;
   $('#cdbell').classList.toggle('on', chat.pushOn); $('#cdbell').hidden = !chat.pushSupported;
@@ -795,6 +796,7 @@ const helpMarkers = new Map<string, maplibregl.Marker>();
 function drawHelp() {
   const helps = community.signedIn ? chat.activeHelps(community.group?.id) : [];
   $('#mapwrap').classList.toggle('helpon', helps.length > 0);
+  if (myHelpActive() !== sosStrobing) { sosStrobing = myHelpActive(); drawPins(); }
   helpBanner.hidden = !helps.length;
   requestAnimationFrame(() => $('#mapwrap').style.setProperty('--hb-h', `${helpBanner.offsetHeight || 56}px`));
   if (helps.length) {
@@ -802,7 +804,7 @@ function drawHelp() {
     const where = !mine && at && state.pos ? ` · ${(distanceM(state.pos, at) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, at))}` : '';
     const detail = `${where ? where.slice(3) + ' · ' : ''}${ago(h.createdAt ?? h.sentAt)}${helps.length > 1 ? ` · +${helps.length - 1} more` : ''}`;
     helpBanner.classList.toggle('mine', mine);
-    helpBanner.innerHTML = `<span class="hbbeacon" aria-hidden="true"><i></i><em>SOS</em></span><span class="hbtext"><b>${mine ? 'You asked for help' : `${esc(h.by.replace(/\s*\(test\)/, ''))} needs help`}</b><small>${mine ? `Your group can see where you are · ${detail}` : detail}</small></span>
+    helpBanner.innerHTML = `<span class="hbbeacon" aria-hidden="true"><i></i><em>SOS</em></span><span class="hbtext"><b>${mine ? (isSos(h) ? 'You pressed SOS' : 'You asked for help') : `${esc(h.by.replace(/\s*\(test\)/, ''))} ${isSos(h) ? 'pressed SOS' : 'needs help'}`}</b><small>${mine ? `Your group can see where you are · ${detail}` : detail}</small></span>
       ${mine ? `<button class="hbok" data-helpok="${h.id}">${inl(ICONS.check, 16)} I'm OK</button>` : at ? `<button class="hbgo" data-helpgo="${h.id}">${inl(ICONS.target, 16)} Show</button>` : ''}`;
   }
   // Flashing SOS markers.
@@ -847,7 +849,7 @@ function speakMessage(m: ChatMessage) {
   if (!readAloud || document.visibilityState !== 'visible') return;
   const who = m.by.replace(/\s*\(test\)/, '');
   const at = m.lat != null && state.pos ? `, ${(distanceM(state.pos, { lat: m.lat, lon: m.lon! }) / 1609.344).toFixed(1)} miles ${({ N: 'north', NE: 'northeast', E: 'east', SE: 'southeast', S: 'south', SW: 'southwest', W: 'west', NW: 'northwest' } as Record<string, string>)[compass(bearingDeg(state.pos, { lat: m.lat, lon: m.lon! }))] ?? ''}` : '';
-  if (m.kind === 'help') speak(`Alert. ${who} needs help${at}.`, true);
+  if (m.kind === 'help') speak(isSos(m) ? `Emergency. ${who} pressed S O S${at}.` : `Alert. ${who} needs help${at}.`, true);
   else if (m.kind === 'helpclear') speak(`${who} is OK now.`);
   else if (m.kind === 'spotclear') return;
   else if (m.kind === 'location') speak(m.body ? `${who} marked a spot: ${m.body}${at}.` : `${who} shared a location${at}.`);
@@ -961,7 +963,7 @@ chat.onChange = () => {
 };
 chat.onIncoming = m => {
   speakMessage(m);
-  if (m.kind === 'help') { navigator.vibrate?.([300, 120, 300, 120, 600]); toast(`${m.by} needs help!`); drawHelp(); return; }
+  if (m.kind === 'help') { navigator.vibrate?.([300, 120, 300, 120, 600]); toast(isSos(m) ? `EMERGENCY: ${m.by} pressed SOS!` : `${m.by} needs help!`); drawHelp(); return; }
   if (m.kind === 'helpclear') { toast(`${m.by} is OK now.`); return; }
   if (m.kind === 'spotclear') { drawSpots(); return; }
   riderBubble(m); freshPill();
@@ -1664,21 +1666,23 @@ document.addEventListener('visibilitychange', () => { void applyWakeLock(); });
 
 // ---------------------------------------------------------------- pins
 const pinMarkers = new Map<string, maplibregl.Marker>();
+function myHelpActive() { return community.signedIn && chat.activeHelps(community.group?.id).some(h => h.riderId === community.uid); }
+let sosStrobing = false;
 function drawPins() {
   drawHeading(); // regroup points and campsites on the compass and radar
   for (const [id, m] of pinMarkers) if (!state.pins.find(p => p.id === id)) { m.remove(); pinMarkers.delete(id); }
   for (const p of state.pins) {
     if (isCleared(p)) { pinMarkers.get(p.id)?.remove(); pinMarkers.delete(p.id); continue; }
     // Icon only on the map (names overlap); tap for details.
-    const key = `${p.kind}:${p.report ?? ''}:${p.photos?.length ? 1 : 0}`;
+    const strobe = !!p.sos && myHelpActive();
+    const key = `${p.kind}:${p.report ?? ''}:${p.photos?.length ? 1 : 0}:${p.sos ? 1 : 0}${strobe ? 's' : ''}`;
     const old = pinMarkers.get(p.id);
     if (old) { old.setLngLat([p.lon, p.lat]); if (old.getElement().dataset.key === key) continue; old.remove(); }
     const el = document.createElement('button');
-    const strobe = false; // the strobe now marks a rider who asked for help
     el.className = `mpin ${p.kind}${strobe ? ' strobe' : ''}`;
     el.dataset.key = key;
     el.setAttribute('aria-label', pinTitle(p));
-    el.innerHTML = `${strobe ? '<i class="flash" aria-hidden="true"></i>' : ''}${pinIcon(p.kind, p.report, 34)}${p.photos?.length ? `<i class="hasphoto" aria-hidden="true">${ICONS.camera}</i>` : ''}`;
+    el.innerHTML = `${strobe ? '<i class="flash" aria-hidden="true"></i>' : ''}${p.sos ? '<span class="ricon sosicon" style="--c:#EF4444;width:34px;height:34px">SOS</span>' : pinIcon(p.kind, p.report, 34)}${p.photos?.length ? `<i class="hasphoto" aria-hidden="true">${ICONS.camera}</i>` : ''}`;
     el.addEventListener('click', ev => { ev.stopPropagation(); pinSheet(p.id); });
     pinMarkers.set(p.id, new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map));
   }
@@ -2628,17 +2632,25 @@ $('#btn-center').addEventListener('click', () => {
 function showSos() {
   navigator.vibrate?.([200, 100, 200]);
   const p = state.pos;
+  // Alert the group: an EMERGENCY help alert with my position (red banner, strobing marker and SOS on the compass and
+  // radar for everyone, a notification, read aloud). Waits on the phone and sends when there's signal.
+  let alerted = '';
+  if (community.signedIn && community.group) {
+    if (!myHelpActive()) { try { chat.send('help', 'EMERGENCY · SOS', p ?? undefined); } catch { /* not in a group */ } }
+    alerted = navigator.onLine ? `Your group (${esc(community.group.name)}) has been alerted with your location.` : `Your group (${esc(community.group.name)}) will be alerted as soon as there's signal.`;
+  }
   sheet(`
     <h3>Emergency</h3>
+    ${alerted ? `<div class="card sosalert"><b>${inl(ICONS.check, 16)} ${alerted}</b><p class="quiet">Tap <b>I'm OK</b> on the red banner when you're safe.</p></div>` : '<div class="card"><b>No group alerted.</b><p class="quiet">Join a ride group (Group tab) so SOS alerts your riders too.</p></div>'}
     ${p ? `<p>Your position:</p><div class="coords">${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</div><p>Accuracy ±${p.acc} m${p.alt != null ? ` · ${Math.round(p.alt * 3.28084).toLocaleString()} ft` : ''}</p>`
         : '<p>No GPS fix yet. Step into open sky.</p>'}
     <div class="card"><b>Call or text 911</b><p>With no cell signal, use your phone's Emergency SOS via satellite (iPhone 14 or later, recent Pixel and Galaxy phones): step into open sky, call or text 911, and follow the prompts. If someone has an inReach, use it too.</p>
       <p>Read the coordinates above to the dispatcher.</p>
       <div class="btns"><a class="btnlink danger" href="tel:911">Call 911</a><button data-act2="sos-copy">Copy coordinates</button></div></div>
     <div class="btns"><button class="getoutbtn" data-act="getout">${inl(ICONS.exit)} Get me out: route back</button></div>
-    <p>This spot is saved as a private "Emergency" pin (only you see it).</p>
+    <p class="quiet">This spot is saved as an "Emergency" pin on your map.</p>
     <div class="btns"><button data-close>Close</button></div>`, 'sos');
-  if (p) { state.pins.unshift({ id: String(Date.now()), kind: 'note', lat: p.lat, lon: p.lon, t: Date.now(), note: 'Emergency' }); // private: not a trail report store.savePins(state.pins); drawPins(); }
+  if (p) { state.pins.unshift({ id: String(Date.now()), kind: 'note', lat: p.lat, lon: p.lon, t: Date.now(), note: 'Emergency', sos: true }); store.savePins(state.pins); drawPins(); }
 }
 
 window.addEventListener('online', () => { state.online = true; renderChips(); });

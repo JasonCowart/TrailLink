@@ -38,7 +38,7 @@ Deno.serve(async req => {
   const quote = orig ? (orig.kind === 'location' ? 'your location' : `"${String(orig.body).slice(0, 40)}"`) : '';
   void gname; // one group at a time, so titles carry just the rider's name
   const payloadFor = (riderId: string) => JSON.stringify(
-    m.kind === 'help' ? { title: `🆘 ${name} needs help`, body: 'Tap to see where they are.', tag: `help-${m.id}`, url: './#group', urgent: true }
+    m.kind === 'help' ? { title: /SOS/.test(m.body ?? '') ? `🆘 EMERGENCY: ${name} pressed SOS` : `🆘 ${name} needs help`, body: 'Tap to see where they are.', tag: `help-${m.id}`, url: './#group', urgent: true }
     : m.kind === 'helpclear' ? { title: `${name} is OK now`, body: 'Their help alert is cleared.', tag: `help-${m.reply_to ?? m.id}`, url: './#group' }
     : {
       title: orig && orig.rider_id === riderId ? `${name} replied to you` : name,

@@ -19,6 +19,7 @@ import qrcode from 'qrcode-generator';
 import { Breadcrumbs } from './groupline.ts';
 import { KeepAwake } from './nosleep.ts';
 const awake = new KeepAwake();
+const detailsOpen = new Map<string, boolean>();
 import jsQR from 'jsqr';
 import { PIN_ICONS, REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
 import { FT, GRADES, MI, buildProfile, distAtX, indexAt, indexNear, miniProfileSvg, miniXY, profileSvg, scrubXY, W as PROFILE_W, type Profile, type ProfileMark } from './profile.ts';
@@ -2334,7 +2335,11 @@ function renderPane() {
     pane.innerHTML = `<div class="detail">${popupHtml(popupProps)}<div class="btns"><button data-closedetail>Close</button></div></div>`;
     return;
   }
+  // Keep folded sections (Cleared hazards, Ride log, …) open or closed as the rider left them when the tab redraws.
+  const dkey = (d: Element) => `${state.tab}:${(d.querySelector('summary')?.textContent ?? '').replace(/[\d/()]+/g, '').trim()}`;
+  pane.querySelectorAll('details').forEach(d => detailsOpen.set(dkey(d), (d as HTMLDetailsElement).open));
   pane.innerHTML = views[state.tab]();
+  pane.querySelectorAll('details').forEach(d => { const o = detailsOpen.get(dkey(d)); if (o != null) (d as HTMLDetailsElement).open = o; });
   pane.scrollTop = scroll;
   hydratePhotos(pane);
   refreshPanel();

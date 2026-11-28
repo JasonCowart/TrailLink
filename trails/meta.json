@@ -1,0 +1,17 @@
+{
+  "built": "2026-11-26T16:08:38.480Z",
+  "states": [
+    "CO",
+    "UT"
+  ],
+  "counts": {
+    "USFS": 19707,
+    "BLM": 60324,
+    "OSM": 147685
+  },
+  "sources": {
+    "USFS": "USDA Forest Service Motor Vehicle Use Map (EDW_MVUM_01)",
+    "BLM": "BLM National GTLF Public Display (routes managed for public motorized use)",
+    "OSM": "OpenStreetMap contributors (ODbL), via Geofabrik"
+  }
+}

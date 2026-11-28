@@ -1735,7 +1735,7 @@ function repairHazards() {
       continue;
     }
     if (pin.sid && pending.has(pin.sid)) continue;
-    if (!pin.sid) { if (hazard) { shareOwnPin(pin, 'all'); changed = true; } continue; }
+    if (!pin.sid) { if (hazard && !(pin.kind === 'hazard' && pin.note === 'Emergency')) { shareOwnPin(pin, 'all'); changed = true; } continue; } // old SOS pins stay private
     if (!pin.up && !repushed.has(pin.sid)) { repushed.add(pin.sid); pin.share ??= 'all'; pushPin(pin); }
   }
   if (changed) { store.savePins(state.pins); drawPins(); }
@@ -2636,9 +2636,9 @@ function showSos() {
       <p>Read the coordinates above to the dispatcher.</p>
       <div class="btns"><a class="btnlink danger" href="tel:911">Call 911</a><button data-act2="sos-copy">Copy coordinates</button></div></div>
     <div class="btns"><button class="getoutbtn" data-act="getout">${inl(ICONS.exit)} Get me out: route back</button></div>
-    <p>This spot is saved as an "Emergency" pin.</p>
+    <p>This spot is saved as a private "Emergency" pin (only you see it).</p>
     <div class="btns"><button data-close>Close</button></div>`, 'sos');
-  if (p) { state.pins.unshift({ id: String(Date.now()), kind: 'hazard', lat: p.lat, lon: p.lon, t: Date.now(), note: 'Emergency' }); store.savePins(state.pins); drawPins(); }
+  if (p) { state.pins.unshift({ id: String(Date.now()), kind: 'note', lat: p.lat, lon: p.lon, t: Date.now(), note: 'Emergency' }); // private: not a trail report store.savePins(state.pins); drawPins(); }
 }
 
 window.addEventListener('online', () => { state.online = true; renderChips(); });

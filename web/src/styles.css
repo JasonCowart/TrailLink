@@ -766,3 +766,38 @@ html:not([data-theme="dark"]) #helpbanner { background: rgba(24,29,26,.8); }
 .msg.mine { align-self: flex-start; text-align: left; }
 .msg.mine .msgtext { border-radius: 14px 14px 14px 4px; }
 .msg.mine button.msgquote { margin-left: 0; }
+/* Radar: Halo-style motion tracker, top left under the scale. You at the center facing up. */
+#radar { position: absolute; z-index: 2; left: 10px; top: calc(var(--map-top) + 136px); width: 112px; height: 112px; border-radius: 50%; cursor: pointer;
+  background: radial-gradient(circle, rgba(16,46,56,.55) 0%, rgba(8,24,30,.72) 70%, rgba(6,18,22,.82) 100%);
+  border: 1px solid rgba(125,211,252,.45); box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 0 14px rgba(56,189,248,.25), inset 0 0 18px rgba(56,189,248,.18);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); transition: width .25s, height .25s; -webkit-tap-highlight-color: transparent; }
+#radar.big { width: 176px; height: 176px; }
+#radar[hidden] { display: none; }
+#mapwrap.helpon #radar { top: calc(var(--map-top) + 196px); }
+#mapwrap.chatopen #radar { display: none; }
+#radar .rd-face { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; }
+#radar .rd-ring { position: absolute; border-radius: 50%; border: 1px solid rgba(125,211,252,.22); }
+#radar .rd-ring.r1 { inset: 30%; } #radar .rd-ring.r2 { inset: 14%; border-style: dashed; }
+#radar .rd-cross { position: absolute; inset: 0; background:
+  linear-gradient(rgba(125,211,252,.18), rgba(125,211,252,.18)) center / 1px 100% no-repeat,
+  linear-gradient(90deg, rgba(125,211,252,.18), rgba(125,211,252,.18)) center / 100% 1px no-repeat; }
+/* Field of view ahead of you, faint. */
+#radar .rd-cone { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from -30deg, rgba(125,211,252,.16) 0 60deg, transparent 60deg); -webkit-mask-image: radial-gradient(circle, #000 0 70%, transparent 71%); mask-image: radial-gradient(circle, #000 0 70%, transparent 71%); }
+/* The pulse: a glowing ring sweeping out from the center. */
+#radar .rd-pulse { position: absolute; left: 50%; top: 50%; width: 100%; height: 100%; margin: -50% 0 0 -50%; border-radius: 50%;
+  background: radial-gradient(circle, rgba(125,211,252,0) 55%, rgba(125,211,252,.35) 68%, rgba(186,230,253,.75) 70%, rgba(125,211,252,0) 71%);
+  animation: rdpulse var(--pulse, 2400ms) cubic-bezier(.3,.1,.6,1) infinite; }
+@keyframes rdpulse { 0% { transform: scale(.02); opacity: 1; } 80% { opacity: .9; } 100% { transform: scale(1.42); opacity: 0; } }
+#radar .rd-me { position: absolute; left: 50%; top: 50%; width: 0; height: 0; margin: -7px 0 0 -6px; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 12px solid var(--orange); filter: drop-shadow(0 0 4px rgba(249,115,22,.9)); }
+#radar .rd-range { position: absolute; left: 50%; bottom: 7%; transform: translateX(-50%); font: 700 9px/1 system-ui, sans-serif; color: rgba(186,230,253,.85); text-shadow: 0 1px 2px #000; pointer-events: none; }
+#radar .rd-marks { position: absolute; inset: 0; pointer-events: none; }
+#radar .rd-blip { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #3B82F6; border: 1.5px solid #fff; color: #fff;
+  display: grid; place-items: center; font: 800 6.5px/1 system-ui, sans-serif; box-shadow: 0 0 6px rgba(59,130,246,.9); animation: rdblip var(--pulse, 2400ms) linear infinite; animation-delay: var(--bd, 0ms); }
+#radar.big .rd-blip { width: 18px; height: 18px; margin: -9px 0 0 -9px; font-size: 8px; }
+@keyframes rdblip { 0% { filter: brightness(1.8); box-shadow: 0 0 12px rgba(125,211,252,1); } 30%, 100% { filter: brightness(.95); } }
+#radar .rd-blip.edge { opacity: .7; border-style: dashed; }
+#radar .rd-blip.regroup { width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 2px; transform: rotate(45deg); background: var(--orange); box-shadow: 0 0 6px rgba(249,115,22,.9); }
+#radar .rd-blip.dest { width: 10px; height: 10px; margin: -5px 0 0 -5px; background: #22C55E; box-shadow: 0 0 6px rgba(34,197,94,.9); }
+#radar .rd-blip.hazard { width: 20px; height: 20px; margin: -10px 0 0 -10px; background: #EF4444; font-size: 6px; box-shadow: 0 0 10px #EF4444; animation: cstrobe 1.6s infinite; }
+@media (prefers-reduced-motion: reduce) { #radar .rd-pulse, #radar .rd-blip { animation: none; } #radar .rd-pulse { display: none; } }
+@media (orientation: landscape) and (max-height: 520px) { #radar { width: 96px; height: 96px; } #radar.big { width: 150px; height: 150px; } }

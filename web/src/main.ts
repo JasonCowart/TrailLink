@@ -18,6 +18,7 @@ import { buildGraph, loadTrailLines, progress, trackRoute, trailRoute, type LL, 
 import qrcode from 'qrcode-generator';
 import { Breadcrumbs } from './groupline.ts';
 import { KeepAwake } from './nosleep.ts';
+import { PULSE_MS, radarFrame, radarMarks } from './radar.ts';
 const awake = new KeepAwake();
 const detailsOpen = new Map<string, boolean>();
 import jsQR from 'jsqr';
@@ -85,6 +86,7 @@ const state = {
   groupLine: store.get('groupLine', true),
   myRides: store.get('myRides', true),
   elevLine: store.get('elevLine', true),
+  radar: store.get('radar', true),
   theme: store.get<'auto' | 'light' | 'dark'>('theme', 'auto'),
   viewRide: null as string | null,
   scrubI: null as number | null,
@@ -376,6 +378,7 @@ function layersPanelHtml(): string {
       <label class="tg">OHV trails and roads <input type="checkbox" data-set="trails" ${state.trails ? 'checked' : ''}></label>
       <label class="tg">Compass bar <input type="checkbox" data-set="compass" ${state.compass ? 'checked' : ''}></label>
       <label class="tg">My recorded rides <input type="checkbox" data-set="myRides" ${state.myRides ? 'checked' : ''}></label>
+      <label class="tg">Radar (riders around you) <input type="checkbox" data-set="radar" ${state.radar ? 'checked' : ''}></label>
       <label class="tg">Elevation strip (ride you're recording or picked) <input type="checkbox" data-set="elevLine" ${state.elevLine ? 'checked' : ''}></label>
       <label class="tg">Group line (who's falling behind) <input type="checkbox" data-set="groupLine" ${state.groupLine ? 'checked' : ''}></label>
       <label class="tg">Forest Service map image (official MVUM drawing) <input type="checkbox" data-set="mvum" ${state.mvum ? 'checked' : ''}></label>
@@ -1553,9 +1556,6 @@ function drawHeading() {
     arrow.hidden = h.source === 'map';
     arrow.style.rotate = `${h.deg - map.getBearing()}deg`;
     arrow.classList.toggle('compass', h.source === 'compass');
-    // The compass bar.
-    compassEl.hidden = !state.compass;
-    if (!state.compass) return;
     const marks: CompassMark[] = [];
     const me = state.pos;
     if (me) {
@@ -1565,10 +1565,32 @@ function drawHeading() {
       for (const p of state.pins) if (p.kind === 'regroup') marks.push({ bearing: bearingDeg(me, p), meters: distanceM(me, p), label: '', kind: 'regroup', title: 'Regroup point' });
       for (const h of chat.activeHelps(community.group?.id)) { const at = h.riderId === community.uid ? null : helpSpot(h); if (at) marks.push({ bearing: bearingDeg(me, at), meters: distanceM(me, at), label: `SOS ${esc(initials(h.by))}`, kind: 'hazard', title: `${esc(h.by)} needs help` }); }
     }
+    drawRadar(marks, h.deg);
+    // The compass bar.
+    compassEl.hidden = !state.compass;
+    if (!state.compass) return;
     compassEl.innerHTML = compassHtml(h.deg, h.source, marks, compassEl.clientWidth || 260, headingUp)
       + (h.source === 'map' && phoneCompass.needsPermission ? '<span class="chint">Tap for compass</span>' : '');
   });
 }
+// ---------------------------------------------------------------- radar (Halo-style motion tracker)
+const radarEl = Object.assign(document.createElement('div'), { id: 'radar', hidden: true });
+radarEl.setAttribute('role', 'button'); radarEl.setAttribute('aria-label', 'Radar: riders around you. Tap to make it bigger or smaller.');
+radarEl.innerHTML = radarFrame();
+$('#mapwrap').append(radarEl);
+const radarPulseStart = performance.now();
+radarEl.style.setProperty('--pulse', `${PULSE_MS}ms`);
+radarEl.classList.toggle('big', store.get('radarBig', false));
+function drawRadar(marks: CompassMark[], heading: number) {
+  // Shown when there's something to track: group riders, a regroup point, a Get-me-out destination, a help alert.
+  const show = state.radar && !!state.pos && marks.length > 0;
+  radarEl.hidden = !show;
+  if (!show) return;
+  const { html, range } = radarMarks(marks, heading, radarPulseStart);
+  radarEl.querySelector('.rd-marks')!.innerHTML = html;
+  radarEl.querySelector('.rd-range')!.textContent = range;
+}
+radarEl.addEventListener('click', () => { const big = !radarEl.classList.contains('big'); radarEl.classList.toggle('big', big); store.set('radarBig', big); });
 phoneCompass.onChange = drawHeading;
 map.on('rotate', drawHeading);
 map.on('rotatestart', e => { if ((e as { originalEvent?: Event }).originalEvent && headingUp) { headingUp = false; store.set('headingUp', false); drawHeading(); } });
@@ -2453,6 +2475,7 @@ function paneChange(e: Event) {
   if (t.dataset.set === 'rigMarks') { state.rigMarks = t.checked; store.set('rigMarks', t.checked); applyRigMarks(); renderPane(); }
   if (t.dataset.set === 'mvum') { state.mvum = t.checked; store.set('mvumImage', t.checked); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', t.checked ? 'visible' : 'none'); }
   if (t.dataset.set === 'myRides') { state.myRides = t.checked; store.set('myRides', t.checked); applyMyRides(); }
+  if (t.dataset.set === 'radar') { state.radar = t.checked; store.set('radar', t.checked); drawHeading(); }
   if (t.dataset.set === 'elevLine') { state.elevLine = t.checked; store.set('elevLine', t.checked); drawElevLine(); }
   if (t.dataset.set === 'groupLine') { state.groupLine = t.checked; store.set('groupLine', t.checked); drawGroupLine(); }
   if (t.dataset.set === 'compass') { state.compass = t.checked; store.set('compass', t.checked); drawHeading(); }
@@ -2622,7 +2645,7 @@ $('#btn-center').classList.add('active');
 if (location.hash === '#debug') Object.assign(window, { tl: { map, community, state, chat, riderBubble, setChatOpen, drawHeading, drawRiders, updateRideMode, headsUp, drawSpots, renderMapChat, startGetOut, updateGuide, getGo: () => goRoute, trailLines, go: { loadTrailLines, buildGraph, trailRoute } } });
 // ---------------------------------------------------------------- account backup (pins, rides, settings, photos)
 // Settings that follow the rider between phones (map position, panel and install prompts stay per phone).
-const SYNCED_SETTINGS = ['groupLine', 'myRides', 'elevLine', 'theme', 'compass', 'headingUp', 'readAloud', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
+const SYNCED_SETTINGS = ['groupLine', 'myRides', 'elevLine', 'radar', 'radarBig', 'theme', 'compass', 'headingUp', 'readAloud', 'base', 'trails', 'colorBy', 'rigMarks', 'mvumImage', 'keepAwake', 'shareNewPins', 'loosePhotos', 'groupRides', 'photoBackup', 'activeVehicle'];
 function applySettings(keys: string[]) {
   for (const k of keys) {
     if (k === 'base') { const b = store.get<BaseMapId>('base', 'topo'); if (b !== state.base && b in BASE_MAPS) setBase(b); }
@@ -2631,6 +2654,7 @@ function applySettings(keys: string[]) {
     if (k === 'rigMarks') { state.rigMarks = store.get('rigMarks', true); applyRigMarks(); }
     if (k === 'mvumImage') { state.mvum = store.get('mvumImage', false); if (map.getLayer('mvum')) map.setLayoutProperty('mvum', 'visibility', state.mvum ? 'visible' : 'none'); }
     if (k === 'theme') { state.theme = store.get('theme', 'auto'); applyTheme(); }
+    if (k === 'radar') { state.radar = store.get('radar', true); drawHeading(); }
     if (k === 'elevLine') { state.elevLine = store.get('elevLine', true); drawElevLine(); }
     if (k === 'myRides') { state.myRides = store.get('myRides', true); applyMyRides(); }
     if (k === 'compass') { state.compass = store.get('compass', true); drawHeading(); }

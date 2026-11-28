@@ -791,6 +791,7 @@ function drawHelp() {
   const helps = community.signedIn ? chat.activeHelps(community.group?.id) : [];
   $('#mapwrap').classList.toggle('helpon', helps.length > 0);
   helpBanner.hidden = !helps.length;
+  requestAnimationFrame(() => $('#mapwrap').style.setProperty('--hb-h', `${helpBanner.offsetHeight || 56}px`));
   if (helps.length) {
     const h = helps[0], mine = h.riderId === community.uid, at = helpSpot(h);
     const where = !mine && at && state.pos ? ` · ${(distanceM(state.pos, at) / 1609.344).toFixed(1)} mi ${compass(bearingDeg(state.pos, at))}` : '';

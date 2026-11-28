@@ -737,7 +737,7 @@ svg.profile .scrubdot { fill: #0EA5E9; stroke: #fff; stroke-width: 2.2; }
 @media (orientation: landscape) and (max-height: 520px) {
   #app { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); box-sizing: border-box; background: var(--paper); }
   #helpbanner { right: auto; width: min(520px, 62%); }
-  #mapwrap.helpon #chatdrawer { top: calc(var(--map-top) + 112px); }
+  #mapwrap.helpon #chatdrawer { top: calc(var(--map-top) + 78px + var(--hb-h, 56px) + 14px); }
 }
 /* Need-help banner, integrated: a dark glass card like the strips and compass, with a red beacon and a red glow edge. */
 #helpbanner { background: rgba(20,24,22,.78); backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2);

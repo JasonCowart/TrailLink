@@ -17,6 +17,8 @@ import { PhoneCompass, compassHtml, type CompassMark, type HeadingSource } from 
 import { buildGraph, loadTrailLines, progress, trackRoute, trailRoute, type LL, type Route } from './getout.ts';
 import qrcode from 'qrcode-generator';
 import { Breadcrumbs } from './groupline.ts';
+import { KeepAwake } from './nosleep.ts';
+const awake = new KeepAwake();
 import jsQR from 'jsqr';
 import { PIN_ICONS, REPORTS, REPORT_TYPES, pinIcon, reportIcon, type ReportType } from './reports.ts';
 import { FT, GRADES, MI, buildProfile, distAtX, indexAt, indexNear, miniProfileSvg, miniXY, profileSvg, scrubXY, W as PROFILE_W, type Profile, type ProfileMark } from './profile.ts';
@@ -76,7 +78,6 @@ const state = {
   pins: store.pins(),
   download: null as null | { done: number; total: number; failed: number; ctrl: AbortController },
   online: navigator.onLine,
-  wakeLock: null as WakeLockSentinel | null,
   keepAwake: store.get('keepAwake', true),
   /** Ride shown in the elevation profile (null: the ride being recorded, else the latest ride). */
   compass: store.get('compass', true),
@@ -1620,15 +1621,16 @@ function startGps() {
 }
 
 // Keep the screen on during a ride: on a phone browser, sharing and recording stop when the screen sleeps.
+awake.onChange = () => renderChips();
 async function applyWakeLock() {
-  try {
-    if (state.keepAwake && document.visibilityState === 'visible' && 'wakeLock' in navigator && !state.wakeLock) {
-      state.wakeLock = await navigator.wakeLock.request('screen');
-      state.wakeLock.addEventListener('release', () => { state.wakeLock = null; renderChips(); });
-    } else if (!state.keepAwake && state.wakeLock) { await state.wakeLock.release(); state.wakeLock = null; }
-  } catch { /* not supported or refused */ }
-  renderChips();
+  if (state.keepAwake && document.visibilityState === 'visible') await awake.on(); else await awake.off();
 }
+// iPhone can refuse the wake lock until the app has been tapped, and drops it now and then: retry on every
+// tap and every 15 s while it isn't held.
+document.addEventListener('pointerdown', () => { if (state.keepAwake && !awake.held) void applyWakeLock(); }, { capture: true });
+setInterval(() => { if (state.keepAwake && document.visibilityState === 'visible' && !(awake.viaLock && awake.held)) void applyWakeLock(); }, 15000);
+window.addEventListener('pageshow', () => { void applyWakeLock(); });
+window.addEventListener('focus', () => { void applyWakeLock(); });
 document.addEventListener('visibilitychange', () => { void applyWakeLock(); });
 
 // ---------------------------------------------------------------- pins
@@ -2124,6 +2126,9 @@ function renderChips() {
     `<span class="chip ${state.online ? 'on' : 'off'}">${state.online ? 'Online' : 'Offline'}</span>`,
     `<span class="chip on">${p ? `GPS ±${p.acc} m` : 'GPS…'}</span>`,
     state.recording ? '<span class="chip rec"><i class="recdot"></i>Recording</span>' : '',
+    // Warn if the screen could sleep mid-ride (that pauses GPS and recording).
+    state.recording && state.keepAwake && !awake.held ? '<span class="chip off">Screen may sleep · tap map</span>' : '',
+    state.recording && !state.keepAwake ? '<span class="chip off">Screen can sleep</span>' : '',
   ].join('');
 }
 
